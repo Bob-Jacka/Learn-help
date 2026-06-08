@@ -47,9 +47,8 @@ def get_questions():
     Get questions from file and randomize them
     :return: None
     """
-    global learn_filename
-    all_dir_files = filter(lambda x: x.__contains__('learn') and not x.__contains__(later_learn_filename), os.listdir())
-    all_dir_files = list(all_dir_files)
+    global learn_filename, all_questions
+    all_dir_files = list(filter(lambda x: x.__contains__('learn') and not x.__contains__(later_learn_filename), os.listdir()))
     all_dir_files_count = len(all_dir_files)
     if all_dir_files_count > 1:
         Format.prYellow('There are more than one file to learn')
@@ -78,6 +77,7 @@ def get_questions():
                 all_questions.append(line.strip())
         if len(all_questions) > 0:
             random.shuffle(all_questions)  # randomize questions before run
+            all_questions = list(filter(None, all_questions))  # delete empty strings
             Format.prYellow('All questions are up to date and shuffled')
         else:
             raise Exception('Learn file is empty')
@@ -111,7 +111,7 @@ def signal_handler(sig, frame):
     global finish_time
     print('\n')
     finish_time = datetime.datetime.now()
-    Format.prYellow(f'learning time - {finish_time - start_time}')
+    Format.prYellow(f'learning time - {(finish_time - start_time)}')
     later_todo()
     Format.prYellow("Out program")
     exit(0)
@@ -124,11 +124,21 @@ if __name__ == '__main__':
     question_counter: int = 0
     all_questions_count: Final[int] = len(all_questions)
     while True:
-        current_question: str = all_questions[question_counter]
+        current_question: str | list[str] = all_questions[question_counter]
+
+        # new question method (with answer)
+        if current_question.__contains__("|"):
+            current_question = current_question.split("|")
+            current_question = list(filter(None, current_question))
+
         if len(current_question) > 0:
             print('\n')
-            Format.prCyan(f'{question_counter}/{all_questions_count}: "{current_question}"')
-            Format.prGreen('Enter "pass" to pass, "no" for no pass or "save" to save question or "exit"')
+            Format.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question if isinstance(current_question, str) else current_question[0]}"')
+            Format.prYellow('Enter "pass" (p) to pass question,')
+            Format.prYellow('Enter "no" (n) if you do not know answer,')
+            Format.prYellow('Enter "help" (h) to view answer,')
+            Format.prYellow('Enter "save" (s) to save question for later learning,')
+            Format.prYellow('Enter "exit" (e) to exit program.')
             choice = input(input_sym)
             match choice:
                 case 'pass' | 'p':
@@ -142,10 +152,22 @@ if __name__ == '__main__':
                     questions_to_learn.append(current_question)
                     question_counter += 1
 
+                case 'help' | 'h':
+                    # TODO refactor later
+                    if isinstance(current_question, list):
+                        if len(current_question) > 1:
+                            Format.prGreen(f'Answer: {current_question[1]}')
+                        else:
+                            Format.prRed('No answer available')
+                    else:
+                        Format.prRed('No answer available')
+
                 case 'save' | 's':
                     Format.prYellow('Save question for later study')
-                    questions_to_learn.append(current_question)
-                    question_counter += 1
+                    if not questions_to_learn.__contains__(current_question):
+                        questions_to_learn.append(current_question)
+                    else:
+                        Format.prRed('Question already saved')
 
                 case 'exit' | 'e':
                     break
@@ -153,7 +175,9 @@ if __name__ == '__main__':
                 case _:
                     Format.prRed('Wrong value, try again')
         else:
+            question_counter += 1
             continue
+
     finish_time = datetime.datetime.now()
-    Format.prYellow(f'learning time - {finish_time - start_time}')
+    Format.prYellow(f'learning time - {(finish_time - start_time)}')
     later_todo()
