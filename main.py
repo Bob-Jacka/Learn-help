@@ -34,7 +34,7 @@ input_sym: Final[str] = '>> '
 learn_filename: str  # file with questions to run
 later_learn_filename: Final[str] = 'todo-learn'
 
-questions_to_learn: list[str] = list()  # to do learn
+questions_to_learn: list[str | list[str]] = list()  # to do learn
 all_questions: list[str] = list()  # all questions that need to answer
 
 # time functionality:
@@ -94,9 +94,9 @@ def later_todo():
     :return: None
     """
     if len(questions_to_learn) > 0:
-        with open(f'{later_learn_filename}-{datetime.datetime.now().date()}.txt', 'w+') as todo_file:
+        with open(f'{later_learn_filename}-{datetime.datetime.now().date()}.txt', 'a+') as todo_file:
             for todo_line in questions_to_learn:
-                todo_file.write(todo_line)
+                todo_file.write(todo_line if isinstance(todo_line, str) else todo_line[0])
                 todo_file.write('\n')
         Format.prYellow('Questions to learn are written to file')
     else:
