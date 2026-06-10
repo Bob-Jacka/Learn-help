@@ -50,6 +50,7 @@ def get_questions():
     global learn_filename, all_questions
     all_dir_files = list(filter(lambda x: x.__contains__('learn') and not x.__contains__(later_learn_filename), os.listdir()))
     all_dir_files_count = len(all_dir_files)
+
     if all_dir_files_count > 1:
         Format.prYellow('There are more than one file to learn')
         Format.prYellow('Choose one file:')
@@ -74,7 +75,8 @@ def get_questions():
     try:
         with open(learn_filename, 'r') as question_file:
             for line in question_file:
-                all_questions.append(line.strip())
+                if not line.startswith('#'):  # comment
+                    all_questions.append(line.strip())
         if len(all_questions) > 0:
             random.shuffle(all_questions)  # randomize questions before run
             all_questions = list(filter(None, all_questions))  # delete empty strings
@@ -89,10 +91,10 @@ def get_questions():
 def later_todo():
     """
     Return to user questions that he needs to learn later
-    :return:
+    :return: None
     """
     if len(questions_to_learn) > 0:
-        with open(f'{later_learn_filename}-{datetime.datetime.now()}.txt', 'w+') as todo_file:
+        with open(f'{later_learn_filename}-{datetime.datetime.now().date()}.txt', 'w+') as todo_file:
             for todo_line in questions_to_learn:
                 todo_file.write(todo_line)
                 todo_file.write('\n')
