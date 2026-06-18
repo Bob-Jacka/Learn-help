@@ -128,8 +128,28 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
     args: Final[list[str]] = sys.argv
-    if len(args) > 1:
+    if len(args) == 2:
         get_questions(args[1])
+
+    elif len(args) > 1:
+        # if I want to add another console parameters
+        match args[1]:
+            case 'new-suit':
+                Format.prYellow('Enter file name:')
+                user_file_name: str = input(input_sym)
+                with open(user_file_name + '.txt', 'w+') as new_file:
+                    new_file.write(f'#{user_file_name} suit: \n')  # add suit name
+                    new_file.write('#<Question text>|<Optional answer>\n')  # add instruction
+                exit(0)  # exit after creation
+
+            case 'help' | 'h':
+                Format.prGreen('"new-suit" for creating new suit')
+                Format.prGreen('also available first argument is path to directory with learn files')
+                exit(0)
+
+            case _:
+                Format.prRed(f'Unknown start parameter {args[1]}')
+                exit(0)
 
     else:
         get_questions(Path().absolute())  # try search for current directory anyway
@@ -137,7 +157,7 @@ if __name__ == '__main__':
     question_counter: int = 0
     all_questions_count: Final[int] = len(all_questions)
     while True:
-        current_question: str | list[str] = all_questions[question_counter]
+        current_question: str | list[str] = all_questions[question_counter]  # str for old format
 
         # new question method (with answer)
         if current_question.__contains__("|"):
@@ -166,7 +186,6 @@ if __name__ == '__main__':
                     question_counter += 1
 
                 case 'help' | 'h':
-                    # TODO refactor later
                     if isinstance(current_question, list):
                         if len(current_question) > 1:
                             Format.prGreen(f'Answer: {current_question[1]}')
