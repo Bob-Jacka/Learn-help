@@ -2,6 +2,8 @@ import datetime
 import os.path
 import random
 import signal
+import sys
+from pathlib import Path
 from typing import Final
 
 
@@ -42,22 +44,24 @@ start_time: Final[datetime.datetime] = datetime.datetime.now()
 finish_time: datetime.datetime
 
 
-def get_questions():
+def get_questions(path: str | Path):
     """
     Get questions from file and randomize them
     :return: None
     """
     global learn_filename, all_questions
-    all_dir_files = list(filter(lambda x: x.__contains__('learn') and not x.__contains__(later_learn_filename), os.listdir()))
+    all_dir_files = list(filter(lambda x: x.__contains__('learn') and not x.__contains__(later_learn_filename), os.listdir(path)))
     all_dir_files_count = len(all_dir_files)
 
     if all_dir_files_count > 1:
-        Format.prYellow('There are more than one file to learn')
+        Format.prYellow('There are more than one file to learn or 666 to exit')
         Format.prYellow('Choose one file:')
         for num, valid_file in enumerate(all_dir_files):
             Format.prCyan(f'{num} - {valid_file}')
         while True:
             user_choice = int(input(input_sym))
+            if user_choice == 666:
+                exit(0)
             if user_choice in range(all_dir_files_count):
                 learn_filename = all_dir_files[user_choice]
                 break
@@ -70,12 +74,13 @@ def get_questions():
 
     elif all_dir_files_count == 0:
         Format.prRed('No "learn" file detected')
-        exit()
+        exit(1)
 
+    # learn file processing
     try:
         with open(learn_filename, 'r') as question_file:
             for line in question_file:
-                if not line.startswith('#'):  # comment
+                if not line.startswith('#'):  # comment symbol
                     all_questions.append(line.strip())
         if len(all_questions) > 0:
             random.shuffle(all_questions)  # randomize questions before run
@@ -120,8 +125,14 @@ def signal_handler(sig, frame):
 
 
 if __name__ == '__main__':
-    signal.signal(signal.SIGINT, signal_handler)
-    get_questions()
+    signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
+
+    args: Final[list[str]] = sys.argv
+    if len(args) > 1:
+        get_questions(args[1])
+
+    else:
+        get_questions(Path().absolute())  # try search for current directory anyway
 
     question_counter: int = 0
     all_questions_count: Final[int] = len(all_questions)
