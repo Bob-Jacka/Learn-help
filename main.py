@@ -44,6 +44,10 @@ start_time: Final[datetime.datetime] = datetime.datetime.now()
 finish_time: datetime.datetime
 
 
+def import_suit(suit_name: str) -> list[str] | None:
+    pass
+
+
 def get_questions(path: str | Path):
     """
     Get questions from file and randomize them
@@ -51,7 +55,7 @@ def get_questions(path: str | Path):
     """
     global learn_filename, all_questions
     all_dir_files = list(filter(lambda x: x.__contains__('learn') and not x.__contains__(later_learn_filename), os.listdir(path)))
-    all_dir_files_count = len(all_dir_files)
+    all_dir_files_count: Final[int] = len(all_dir_files)
 
     if all_dir_files_count > 1:
         Format.prYellow('There are more than one file to learn or 666 to exit')
@@ -78,6 +82,11 @@ def get_questions(path: str | Path):
 
     # learn file processing
     try:
+        # TODO add import directive
+        # all_file_data:list[str] = open(learn_filename, 'r').readlines()
+        # if all_file_data.__contains__('.Import'):
+        #     all_file_data.insert()
+
         with open(learn_filename, 'r') as question_file:
             for line in question_file:
                 if not line.startswith('#'):  # comment symbol
@@ -128,13 +137,17 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
     args: Final[list[str]] = sys.argv
-    if len(args) == 2:
+    args_count = len(sys.argv) - 1  # delete program name from arguments
+
+    # path branch:
+    if args_count == 1 and args[1].__contains__('/'):
         get_questions(args[1])
 
-    elif len(args) > 1:
+    # parameters branch:
+    elif args_count == 1:
         # if I want to add another console parameters
         match args[1]:
-            case 'new-suit':
+            case 'new-suit' | 'ns':
                 Format.prYellow('Enter file name:')
                 user_file_name: str = input(input_sym)
                 with open(user_file_name + '.txt', 'w+') as new_file:
@@ -151,9 +164,15 @@ if __name__ == '__main__':
                 Format.prRed(f'Unknown start parameter {args[1]}')
                 exit(0)
 
-    else:
+    # local start branch:
+    elif args_count == 0:
         get_questions(Path().absolute())  # try search for current directory anyway
 
+    else:
+        Format.prRed('No cli arguments passed')
+        exit(1)
+
+    # main utility logic:
     question_counter: int = 0
     all_questions_count: Final[int] = len(all_questions)
     while True:
@@ -166,9 +185,9 @@ if __name__ == '__main__':
 
         if len(current_question) > 0:
             print('\n')
-            Format.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question if isinstance(current_question, str) else current_question[0]}"')
+            Format.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question.capitalize() if isinstance(current_question, str) else current_question[0].capitalize()}"')
             Format.prYellow('Enter "pass" (p) to pass question,')
-            Format.prYellow('Enter "no" (n) if you do not know answer,')
+            Format.prYellow('Enter "no"   (n) if you do not know answer,')
             Format.prYellow('Enter "help" (h) to view answer,')
             Format.prYellow('Enter "save" (s) to save question for later learning,')
             Format.prYellow('Enter "exit" (e) to exit program.')
@@ -188,7 +207,7 @@ if __name__ == '__main__':
                 case 'help' | 'h':
                     if isinstance(current_question, list):
                         if len(current_question) > 1:
-                            Format.prGreen(f'Answer: {current_question[1]}')
+                            Format.prGreen(f'Answer: {current_question[1].capitalize()}')
                         else:
                             Format.prRed('No answer available')
                     else:
