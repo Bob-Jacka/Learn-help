@@ -3,8 +3,16 @@ import os.path
 import random
 import signal
 import sys
+from enum import Enum
+from os.path import exists
 from pathlib import Path
 from typing import Final
+
+
+class Question_threshold(int, Enum):
+    MINIMAL = 1
+    MEDIUM = 2
+    HIGH = 3
 
 
 class Format:
@@ -44,17 +52,13 @@ start_time: Final[datetime.datetime] = datetime.datetime.now()
 finish_time: datetime.datetime
 
 
-def import_suit(suit_name: str) -> list[str] | None:
-    pass
-
-
-def get_questions(path: str | Path):
+def get_questions(current_dir_path: str | Path):
     """
     Get questions from file and randomize them
     :return: None
     """
     global learn_filename, all_questions
-    all_dir_files = list(filter(lambda x: x.__contains__('learn') and not x.__contains__(later_learn_filename), os.listdir(path)))
+    all_dir_files = list(filter(lambda x: x.__contains__('learn') and not x.__contains__(later_learn_filename), os.listdir(current_dir_path)))
     all_dir_files_count: Final[int] = len(all_dir_files)
 
     if all_dir_files_count > 1:
@@ -82,18 +86,30 @@ def get_questions(path: str | Path):
 
     # learn file processing
     try:
-        # TODO add import directive
-        # all_file_data:list[str] = open(learn_filename, 'r').readlines()
-        # if all_file_data.__contains__('.Import'):
-        #     all_file_data.insert()
+        all_file_data: list[str] = open(current_dir_path.__str__() + os.sep + learn_filename, 'r').readlines()
 
-        with open(learn_filename, 'r') as question_file:
-            for line in question_file:
-                if not line.startswith('#'):  # comment symbol
-                    all_questions.append(line.strip())
+        for _, value in enumerate(all_file_data):
+
+            # import branch:
+            if value.startswith('.Import'):
+                _, file_to_import = value.split(' ')
+
+                full_path: str = current_dir_path.__str__() + os.sep + file_to_import.strip()
+                if exists(full_path):
+                    with open(full_path, 'r') as import_file:
+                        for line in import_file:
+                            if line != '\n' and not line.startswith('#'):
+                                all_questions.append(line.strip())
+                    continue
+                else:
+                    Format.prRed('File to import is not exist')
+
+            # comment branch:
+            if value != '\n' and not value.startswith('#'):  # comment symbol
+                all_questions.append(value.strip())
+
         if len(all_questions) > 0:
             random.shuffle(all_questions)  # randomize questions before run
-            all_questions = list(filter(None, all_questions))  # delete empty strings
             Format.prYellow('All questions are up to date and shuffled')
         else:
             raise Exception('Learn file is empty')
