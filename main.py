@@ -8,6 +8,8 @@ from os.path import exists
 from pathlib import Path
 from typing import Final
 
+os.environ['TERM'] = 'xterm-256color'
+
 
 class Global_statement:
     """
@@ -23,18 +25,19 @@ class Global_statement:
 
     # consts:
     later_learn_filename: Final[str] = 'todo-learn'
-    main_file_name: Final[str] = 'main.txt'
-    app_version: Final[str] = '2.0.0'
+    main_file_name: Final[str] = 'main'
+    all_file_name: Final[str] = 'all'
+    app_version: Final[str] = '2.1.0'
 
-    @staticmethod
-    def enter_data_int():
-        user_data = int(input('>> '))
-        return user_data
 
-    @staticmethod
-    def enter_data_str():
-        user_data = input('>> ')
-        return user_data
+class Syntax_rules:
+    """
+    Syntax for suits
+    """
+    global_import_directive: Final[str] = '.Import_global'
+    local_import_directive: Final[str] = '.Import_local'
+
+    function_directive: Final[str] = '$Func'
 
 
 class Format:
@@ -114,39 +117,33 @@ class Suit:
         try:
             main_file_data: list[str] = open(self.start_suit_path + os.sep + Global_statement.main_file_name, 'r').readlines()
 
-            for _, value in enumerate(main_file_data):
+            for _, suit_line in enumerate(main_file_data):
 
                 # Local import branch:
-                if value.startswith('.Import_local'):
-                    _, file_to_import = value.split(' ')
+                if suit_line.startswith(Syntax_rules.local_import_directive):
+                    _, file_to_import = suit_line.split(' ')
 
-                    full_path: str = self.start_suit_path + os.sep + file_to_import.strip()
-                    if exists(full_path):
-                        self.all_suit_questions.extend(proceed_import_file(full_path))
-                        continue
-                    else:
-                        Format.prRed('File to import is not exist')
+                    proceed_import_file(self.start_suit_path + os.sep + file_to_import.strip(), self)
+                    continue
 
                 # Global import directive:
-                elif value.startswith('.Import_global'):
-                    _, name_to_resolve = value.split(' ')
-                    global_path = App.resolve_global(name_to_resolve)
-                    if global_path is not None:
-                        self.all_suit_questions.extend(proceed_import_file(global_path))
-                        continue
+                elif suit_line.startswith(Syntax_rules.global_import_directive):
+                    _, name_to_resolve = suit_line.split(' ')
+
+                    proceed_import_file(App.resolve_global(clear_string(name_to_resolve)), self)
+                    continue
 
                 # comment branch:
-                if value != '\n' and not value.startswith('#'):  # comment symbol
-                    self.all_suit_questions.append(value.strip())
+                if suit_line != '\n' and not suit_line.startswith('#'):  # comment symbol
+                    self.all_suit_questions.append(clear_string(suit_line))
 
             if len(self.all_suit_questions) > 0:
-                random.shuffle(self.all_suit_questions)  # randomize questions before run
+                self.all_suit_questions = fisher_yates_shuffle(self.all_suit_questions)  # randomize questions before run
                 Format.prYellow('All questions are up to date and shuffled')
             else:
                 raise Exception('Learn file is empty')
         except Exception as e:
-            Format.prRed(f'Some exception occurred during question task - {e}')
-            exit(1)
+            handle_critical_error(f'Some exception occurred during question task - {e}')
 
 
 class App:
@@ -157,28 +154,36 @@ class App:
             self.start_path = Path().parent.absolute().as_posix()
             self.question_runner = App.Question_runner(args, self.start_path)
         except Exception as e:
-            Format.prRed(f'Failed to initialize app with error {e}')
+            handle_critical_error(f'Failed to initialize app with error {e}')
 
     def __check_for_all(self):
         """
         Check for all file with paths
         :return: None
         """
-        if not exists(self.start_path + os.sep + 'all.txt'):
+        if not exists(self.start_path + os.sep + Global_statement.all_file_name):
             Format.prRed('All file is not created, auto create')
+            # TODO
 
-        with open(self.start_path + os.sep + 'all.txt', 'w+') as all_file:
-            for line in all_file:
+        file_data = open(self.start_path + os.sep + Global_statement.all_file_name, 'r').readlines()
+
+        for line in file_data:
+            if line != '' and '=' in line:
                 glob_name, glob_path = line.split('=')
-                Global_statement.all_file_data[glob_name] = glob_path
+                Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
 
     def start_app(self):
+        """
+        Main app pipeline
+        :return: None
+        """
         try:
             self.__check_for_all()
+            clear_screen()
             self.question_runner.init()
             self.question_runner.run_question_runner()
         except Exception as e:
-            Format.prRed(f'Failed to start app with error - {e}')
+            handle_critical_error(f'Failed to start app with error - {e}')
 
     @staticmethod
     def resolve_global(dependency_name: str) -> str | None:
@@ -189,11 +194,11 @@ class App:
         if dependency_name in Global_statement.all_file_data:
             return Global_statement.all_file_data[dependency_name]
         else:
-            Format.prRed(f'Wrong global value - {dependency_name}')
+            Format.prRed(f'No global value found - {dependency_name}, return None')
             return None
 
     class Question_runner:
-        suits: OrderedDict[str, Suit]  # key - suit name, value - suit
+        _suits: OrderedDict[str, Suit]  # key - suit name, value - suit
 
         def __init__(self, args: list, start_path: str | Path):
             self.start_path = start_path
@@ -206,15 +211,18 @@ class App:
             """
             dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(self.start_path)))
             if len(dirs) > 0:
-                self.suits = OrderedDict()
+                self._suits = OrderedDict()
                 for dir in dirs:
                     if self.is_suit(dir):  # todo parallelize
-                        self.suits[dir] = Suit(dir)
+                        self._suits[dir] = Suit(dir)
             else:
-                Format.prRed('No files found')
-                exit(1)
+                handle_critical_error('No files found')
 
         def run_question_runner(self):
+            """
+            Run main app activity
+            :return: None
+            """
             active_suit: Suit = None
             # parameters branch:
             if self.args_count == 1:
@@ -222,7 +230,7 @@ class App:
                 match args[1]:
                     case 'new-suit' | 'ns':
                         Format.prYellow('Enter file name:')
-                        user_file_name: str = Global_statement.enter_data_str()
+                        user_file_name: str = enter_data_str()
                         with open(user_file_name + '.txt', 'w+') as new_file:
                             new_file.write(f'#{user_file_name} suit: \n')  # add suit name
                             new_file.write('#<Question text>|<Optional answer>\n')  # add instruction
@@ -234,39 +242,37 @@ class App:
                         exit(0)
 
                     case _:
-                        Format.prRed(f'Unknown start parameter {args[1]}')
-                        exit(0)
+                        handle_critical_error(f'Unknown start parameter {args[1]}')
 
             # local start branch:
             elif self.args_count == 0:
                 suits_key: Final[list[str]] = list()
-                if len(self.suits) > 1:
+                if len(self._suits) > 1:
                     Format.prYellow('Detected several available suits:')
-                    for suit_num, suit_name in enumerate(self.suits):
+                    for suit_num, suit_name in enumerate(self._suits):
                         print(f'{suit_num}: {suit_name}')
                         suits_key.append(suit_name)  # add suit name into keys
+
                     while True:
                         Format.prYellow('Choose suit to run by its number')
-                        user_choice = Global_statement.enter_data_int()
-                        if user_choice in range(len(self.suits)):
-                            active_suit = self.suits[suits_key[user_choice]]
+                        user_choice = enter_data_int()
+                        if user_choice in range(len(self._suits)):
+                            active_suit = self._suits[suits_key[user_choice]]
                             break
                         else:
                             Format.prRed('Try again')
                             continue
 
-                elif len(self.suits) == 1:
-                    active_suit = list(self.suits.items())[0][1]
+                elif len(self._suits) == 1:
+                    active_suit = list(self._suits.items())[0][1]
 
                 if active_suit is not None:
                     active_suit.get_questions()  # try search for current directory anyway
                 else:
-                    Format.prRed('No active suit')
-                    exit(1)
+                    handle_critical_error('No active suit')
 
             else:
-                Format.prRed('No CLI arguments passed')
-                exit(1)
+                handle_critical_error('No CLI arguments passed')
 
             # main utility logic:
             question_counter: int = 0
@@ -287,18 +293,20 @@ class App:
                     Format.prYellow('Enter "help" (h) to view answer,')
                     Format.prYellow('Enter "save" (s) to save question for later learning,')
                     Format.prYellow('Enter "exit" (e) to exit program.')
-                    choice = Global_statement.enter_data_str()
+                    choice = enter_data_str()
                     match choice:
                         case 'pass' | 'p':
                             question_counter += 1
                             if all_questions_count == question_counter:
                                 break
+                            clear_screen()
                             continue
 
                         case 'no' | 'n':
                             Format.prRed('Later check this question')
                             Global_statement.questions_to_learn.append(current_question)
                             question_counter += 1
+                            clear_screen()
 
                         case 'help' | 'h':
                             if isinstance(current_question, list):
@@ -311,14 +319,37 @@ class App:
 
                         case 'save' | 's':
                             Format.prYellow('Save question for later study')
-                            if not Global_statement.questions_to_learn.__contains__(current_question):
+                            if not current_question in Global_statement.questions_to_learn:
                                 Global_statement.questions_to_learn.append(current_question)
                             else:
                                 Format.prRed('Question already saved')
 
                         case 'exit' | 'e':
-                            break
+                            if question_counter < all_questions_count:
+                                Format.prYellow('Not all questions solved')
+                                Format.prYellow('Do you want to save current session for later continue? (y/n)')
+                                while True:
+                                    user_choice = enter_data_str()
+                                    match user_choice:
+                                        case 'y' | 'yes':
+                                            Format.prGreen('Saving file')
+                                            with open(f'savefile-{datetime.date.today()}.txt', 'w+') as save_file:
+                                                for question_line in range(question_counter, all_questions_count):
+                                                    save_file.write(active_suit.all_suit_questions[question_line])
+                                                    save_file.write('\n')
+                                            Format.prGreen('Save complete')
+                                            break
 
+                                        case 'n' | 'no':
+                                            Format.prGreen('No save')
+                                            break
+
+                                        case _:
+                                            Format.prRed('Wrong value added, try again')
+                                            continue
+                                break
+                            else:
+                                break
                         case _:
                             Format.prRed('Wrong value, try again')
                 else:
@@ -351,26 +382,66 @@ def signal_handler(sig, frame):
     exit(0)
 
 
-def proceed_import_file(path_to_read: str | Path) -> list[str]:
+def proceed_import_file(path_to_read: str | Path, suit: Suit) -> None:
     """
     Proceed file to import and return its data
-    :param path_to_read:
+    :param suit: suit to add data
+    :param path_to_read: full path to file with data
     :return: list with file data
     """
-    to_return: list[str] = list()
-    with open(path_to_read, 'r') as import_file:
-        for line in import_file:
-            if line != '\n' and not line.startswith('#'):  # comments
-                to_return.append(line.strip())
-            # TODO
-            # elif line.startswith(): #functions
-            #     pass
-    return to_return
+    if exists(path_to_read):
+        to_return: Final[list[str]] = list()
+        with open(path_to_read, 'r') as import_file:
+            for line in import_file:
+                if line != '\n' and not line.startswith('#'):  # comments
+                    to_return.append(clear_string(line))
+
+                # experimental feature, nested suits
+                elif line.startswith(Syntax_rules.global_import_directive) or line.startswith(Syntax_rules.local_import_directive):
+                    _, file_to_include = line.split('=')
+                    proceed_import_file(clear_string(file_to_include), suit)
+
+                elif line.startswith(Syntax_rules.function_directive):  # functions
+                    pass
+        suit.all_suit_questions.extend(to_return)
+    else:
+        Format.prRed(f'Path to import file is not exists: {path_to_read}')
+
+
+def clear_screen() -> None:
+    os.system('clear')
+
+
+def fisher_yates_shuffle(arr):
+    for i in range(len(arr) - 1, 0, -1):
+        j = random.randint(0, i)
+        arr[i], arr[j] = arr[j], arr[i]
+    return arr
+
+
+def enter_data_int():
+    user_data = int(input('>> '))
+    return user_data
+
+
+def enter_data_str():
+    user_data = input('>> ')
+    return user_data
+
+
+def clear_string(string: str) -> str:
+    return string.strip()
+
+
+def handle_critical_error(msg: str):
+    Format.prRed(msg)
+    exit(1)
 
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
     args: Final[list[str]] = sys.argv
+
     app = App()
     app.start_app()
