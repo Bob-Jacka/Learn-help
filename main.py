@@ -17,7 +17,7 @@ class Global_statement:
     """
     # containers
     questions_to_learn: Final[list[str | list[str]]] = list()  # to do learn
-    all_file_data: Final[dict[str, str | Path]] = dict()
+    all_file_data: Final[dict[str, str | Path]] = dict()  # available paths and variables
 
     # time functionality:
     start_time: Final[datetime.datetime] = datetime.datetime.now()
@@ -27,17 +27,31 @@ class Global_statement:
     later_learn_filename: Final[str] = 'todo-learn'
     main_file_name: Final[str] = 'main'
     all_file_name: Final[str] = 'all'
-    app_version: Final[str] = '2.1.0'
+    app_version: Final[str] = '2.2.0'
+
+
+class Global_functions:
+    @staticmethod
+    def decide(var_name: str):
+        if var_name in Global_statement.all_file_data:
+            pass
+        else:
+            Format.prRed(f'No global variable found with name - {var_name}')
 
 
 class Syntax_rules:
     """
-    Syntax for suits
+    Syntax rules for suits
     """
+    # suit file consts:
     global_import_directive: Final[str] = '.Import_global'
     local_import_directive: Final[str] = '.Import_local'
-
     function_directive: Final[str] = '$Func'
+    comment_symbol: Final[str] = '#'
+
+    # all file config:
+    variable_prefix: Final[str] = 'Var'
+    path_prefix: Final[str] = 'Path'
 
 
 class Format:
@@ -45,8 +59,6 @@ class Format:
     Utility class for text formater
     Includes print functions in different colors and underline technology.
     """
-    underline_end: Final[str] = '\033[0m'
-    underline_start: Final[str] = '\033[4m'
 
     @staticmethod
     def prRed(string: str):
@@ -63,6 +75,10 @@ class Format:
     @staticmethod
     def prCyan(string: str):
         print("\033[96m {}\033[00m".format(string))
+
+    @staticmethod
+    def prUnderline(string: str):
+        print("\033[4m {}\033[0m".format(string))
 
 
 class Suit:
@@ -134,7 +150,7 @@ class Suit:
                     continue
 
                 # comment branch:
-                if suit_line != '\n' and not suit_line.startswith('#'):  # comment symbol
+                if suit_line != '\n' and not suit_line.startswith(Syntax_rules.comment_symbol):  # comment symbol
                     self.all_suit_questions.append(clear_string(suit_line))
 
             if len(self.all_suit_questions) > 0:
@@ -162,15 +178,27 @@ class App:
         :return: None
         """
         if not exists(self.start_path + os.sep + Global_statement.all_file_name):
-            Format.prRed('All file is not created, auto create')
-            # TODO
+            Format.prRed('All file is not created, auto create all file')
+            open(self.start_path + os.sep + Global_statement.all_file_name, 'r').close()
 
         file_data = open(self.start_path + os.sep + Global_statement.all_file_name, 'r').readlines()
 
         for line in file_data:
             if line != '' and '=' in line:
-                glob_name, glob_path = line.split('=')
-                Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
+                # path path:
+                if line.startswith(Syntax_rules.path_prefix):
+                    line = line.removeprefix(Syntax_rules.path_prefix)
+                    glob_name, glob_path = line.split('=')
+                    Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
+
+                # variable path:
+                elif line.startswith(Syntax_rules.variable_prefix):
+                    line = line.removeprefix(Syntax_rules.variable_prefix)
+                    glob_name, glob_path = line.split('=')
+                    Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
+
+                else:
+                    Format.prRed(f'Unknown parameter line in all file {line}')
 
     def start_app(self):
         """
@@ -180,7 +208,6 @@ class App:
         try:
             self.__check_for_all()
             clear_screen()
-            self.question_runner.init()
             self.question_runner.run_question_runner()
         except Exception as e:
             handle_critical_error(f'Failed to start app with error - {e}')
@@ -194,7 +221,7 @@ class App:
         if dependency_name in Global_statement.all_file_data:
             return Global_statement.all_file_data[dependency_name]
         else:
-            Format.prRed(f'No global value found - {dependency_name}, return None')
+            Format.prRed(f'No global value found - {dependency_name}, return None instead')
             return None
 
     class Question_runner:
@@ -203,17 +230,11 @@ class App:
         def __init__(self, args: list, start_path: str | Path):
             self.start_path = start_path
             self.args_count = len(args) - 1  # delete program name from arguments
-
-        def init(self):
-            """
-            Post init method to create question suits
-            :return: None
-            """
             dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(self.start_path)))
             if len(dirs) > 0:
                 self._suits = OrderedDict()
                 for dir in dirs:
-                    if self.is_suit(dir):  # todo parallelize
+                    if self.is_suit(dir):
                         self._suits[dir] = Suit(dir)
             else:
                 handle_critical_error('No files found')
@@ -288,6 +309,11 @@ class App:
                 if len(current_question) > 0:
                     print('\n')
                     Format.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question.capitalize() if isinstance(current_question, str) else current_question[0].capitalize()}"')
+
+                    # print suit name:
+                    Format.prYellow(f'Question suit: {current_question[-1]}')
+
+                    # print other question data:
                     Format.prYellow('Enter "pass" (p) to pass question,')
                     Format.prYellow('Enter "no"   (n) if you do not know answer,')
                     Format.prYellow('Enter "help" (h) to view answer,')
@@ -392,8 +418,11 @@ def proceed_import_file(path_to_read: str | Path, suit: Suit) -> None:
     if exists(path_to_read):
         to_return: Final[list[str]] = list()
         with open(path_to_read, 'r') as import_file:
+            suit_name = import_file.name  # add suit name
+
             for line in import_file:
-                if line != '\n' and not line.startswith('#'):  # comments
+                if line != '\n' and not line.startswith(Syntax_rules.comment_symbol):  # comments
+                    line += f'|{suit_name}'
                     to_return.append(clear_string(line))
 
                 # experimental feature, nested suits
@@ -440,8 +469,12 @@ def handle_critical_error(msg: str):
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
+    # parser = argparse.ArgumentParser('Learn-help', description='App for learning')
+    # parser.add_argument('-h', '--help', action='help')  # TODO
+    # parser.add_argument('-ns', '--new-suit', action='store')
 
     args: Final[list[str]] = sys.argv
+    # ns = parser.parse_args(args)
 
     app = App()
     app.start_app()
