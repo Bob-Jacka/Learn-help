@@ -11,6 +11,13 @@ from typing import Final
 os.environ['TERM'] = 'xterm-256color'
 
 
+class Flags:
+    is_random_run: Final[bool] = True  # sequential order if false and random otherwise
+    verbose_mode: Final[bool] = True  # output suit name when run
+    debug_mode: Final[bool] = False  # for debug msgs
+    high_prior: Final[bool] = False  # run only high priority questions
+
+
 class Global_statement:
     """
     Some constants and global data
@@ -27,7 +34,7 @@ class Global_statement:
     later_learn_filename: Final[str] = 'todo-learn'
     main_file_name: Final[str] = 'main'
     all_file_name: Final[str] = 'all'
-    app_version: Final[str] = '2.2.0'
+    app_version: Final[str] = '2.2.1'
 
 
 class Global_functions:
@@ -37,6 +44,10 @@ class Global_functions:
             pass
         else:
             Format.prRed(f'No global variable found with name - {var_name}')
+
+    @staticmethod
+    def dynamic_import(var_name: str):
+        pass
 
 
 class Syntax_rules:
@@ -48,6 +59,9 @@ class Syntax_rules:
     local_import_directive: Final[str] = '.Import_local'
     function_directive: Final[str] = '$Func'
     comment_symbol: Final[str] = '#'
+    suit_name_symbol: Final[str] = '^'
+
+    statistics_symbol: Final[str] = '#Statistics:'
 
     # all file config:
     variable_prefix: Final[str] = 'Var'
@@ -98,12 +112,12 @@ class Suit:
         file_handler = open(Global_statement.main_file_name, 'w+')
         main_file_data = file_handler.readlines()
         try:
-            stat_start = main_file_data.index('#Statistics:')  # special commentary for statistics
+            stat_start = main_file_data.index(Syntax_rules.statistics_symbol)  # special commentary for statistics
         except ValueError:
             Format.prRed('No statistics in this suit, create partition')
             file_handler.write('\n#Statistics:')
 
-    def later_todo(self):
+    def later_todo(self) -> None:
         """
         Return to user questions that he needs to learn later
         :return: None
@@ -121,7 +135,7 @@ class Suit:
         with open(Global_statement.main_file_name, 'w+') as main_file:
             pass
 
-    def get_question_count(self):
+    def get_question_count(self) -> int:
         return len(self.all_suit_questions)
 
     def get_questions(self):
@@ -146,6 +160,9 @@ class Suit:
                 elif suit_line.startswith(Syntax_rules.global_import_directive):
                     _, name_to_resolve = suit_line.split(' ')
 
+                    if '.txt' in name_to_resolve:  # only global name, not path to file
+                        raise Exception('Global name should not contain path to file')
+
                     proceed_import_file(App.resolve_global(clear_string(name_to_resolve)), self)
                     continue
 
@@ -154,12 +171,18 @@ class Suit:
                     self.all_suit_questions.append(clear_string(suit_line))
 
             if len(self.all_suit_questions) > 0:
-                self.all_suit_questions = fisher_yates_shuffle(self.all_suit_questions)  # randomize questions before run
-                Format.prYellow('All questions are up to date and shuffled')
+                if Flags.is_random_run:
+                    self.all_suit_questions = fisher_yates_shuffle(self.all_suit_questions)  # randomize questions before run
+                    Format.prYellow('All questions are up to date and shuffled')
+                else:
+                    Format.prYellow('Run in sequential mode')
             else:
                 raise Exception('Learn file is empty')
         except Exception as e:
-            handle_critical_error(f'Some exception occurred during question task - {e}')
+            if Flags.debug_mode:
+                pass
+                # TODO print all import suits name
+            handle_critical_error(f'Critical exception during question task - {e}')
 
 
 class App:
@@ -185,6 +208,7 @@ class App:
 
         for line in file_data:
             if line != '' and '=' in line:
+
                 # path path:
                 if line.startswith(Syntax_rules.path_prefix):
                     line = line.removeprefix(Syntax_rules.path_prefix)
@@ -252,7 +276,7 @@ class App:
                     case 'new-suit' | 'ns':
                         Format.prYellow('Enter file name:')
                         user_file_name: str = enter_data_str()
-                        with open(user_file_name + '.txt', 'w+') as new_file:
+                        with open(user_file_name, 'w+') as new_file:
                             new_file.write(f'#{user_file_name} suit: \n')  # add suit name
                             new_file.write('#<Question text>|<Optional answer>\n')  # add instruction
                         exit(0)  # exit after creation
@@ -310,8 +334,9 @@ class App:
                     print('\n')
                     Format.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question.capitalize() if isinstance(current_question, str) else current_question[0].capitalize()}"')
 
-                    # print suit name:
-                    Format.prYellow(f'Question suit: {current_question[-1]}')
+                    if Flags.verbose_mode:
+                        # print suit name:
+                        Format.prYellow(f'Question suit: {current_question[-1].removeprefix(Syntax_rules.suit_name_symbol)}')
 
                     # print other question data:
                     Format.prYellow('Enter "pass" (p) to pass question,')
@@ -336,7 +361,7 @@ class App:
 
                         case 'help' | 'h':
                             if isinstance(current_question, list):
-                                if len(current_question) > 1:
+                                if len(current_question[1]) > 1 and not current_question[1].startswith(Syntax_rules.suit_name_symbol):  # bug fix, when question line with 2 or 3
                                     Format.prGreen(f'Answer: {current_question[1].capitalize()}')
                                 else:
                                     Format.prRed('No answer available')
@@ -415,14 +440,18 @@ def proceed_import_file(path_to_read: str | Path, suit: Suit) -> None:
     :param path_to_read: full path to file with data
     :return: list with file data
     """
+    if path_to_read is None:
+        return
     if exists(path_to_read):
         to_return: Final[list[str]] = list()
         with open(path_to_read, 'r') as import_file:
-            suit_name = import_file.name  # add suit name
+            suit_name: Final[str] = import_file.name  # add suit name
 
             for line in import_file:
                 if line != '\n' and not line.startswith(Syntax_rules.comment_symbol):  # comments
-                    line += f'|{suit_name}'
+                    if Flags.verbose_mode:
+                        line += f'|{Syntax_rules.suit_name_symbol}{suit_name}'  # append additional data only in case of verbose flag
+
                     to_return.append(clear_string(line))
 
                 # experimental feature, nested suits
@@ -465,6 +494,10 @@ def clear_string(string: str) -> str:
 def handle_critical_error(msg: str):
     Format.prRed(msg)
     exit(1)
+
+
+def handle_non_major_error(msg: str):
+    Format.prRed(msg)
 
 
 if __name__ == '__main__':
