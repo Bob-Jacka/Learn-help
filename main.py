@@ -1,3 +1,4 @@
+import argparse
 import datetime
 import os.path
 import random
@@ -191,7 +192,7 @@ class App:
         try:
             self.all_file_data = dict()
             self.start_path = Path().parent.absolute().as_posix()
-            self.question_runner = App.Question_runner(args, self.start_path)
+            self.question_runner = App.Question_runner(self.start_path)
         except Exception as e:
             handle_critical_error(f'Failed to initialize app with error {e}')
 
@@ -251,9 +252,8 @@ class App:
     class Question_runner:
         _suits: OrderedDict[str, Suit]  # key - suit name, value - suit
 
-        def __init__(self, args: list, start_path: str | Path):
+        def __init__(self, start_path: str | Path):
             self.start_path = start_path
-            self.args_count = len(args) - 1  # delete program name from arguments
             dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(self.start_path)))
             if len(dirs) > 0:
                 self._suits = OrderedDict()
@@ -270,7 +270,7 @@ class App:
             """
             active_suit: Suit = None
             # parameters branch:
-            if self.args_count == 1:
+            if args_length == 1:
                 # if I want to add another console parameters
                 match args[1]:
                     case 'new-suit' | 'ns':
@@ -290,7 +290,7 @@ class App:
                         handle_critical_error(f'Unknown start parameter {args[1]}')
 
             # local start branch:
-            elif self.args_count == 0:
+            elif args_length == 0:
                 suits_key: Final[list[str]] = list()
                 if len(self._suits) > 1:
                     Format.prYellow('Detected several available suits:')
@@ -299,8 +299,11 @@ class App:
                         suits_key.append(suit_name)  # add suit name into keys
 
                     while True:
-                        Format.prYellow('Choose suit to run by its number')
+                        Format.prYellow('Choose suit to run by its number or type 666 to exit')
                         user_choice = enter_data_int()
+                        if user_choice == 666:
+                            Format.prYellow('Exit from utility')
+                            exit(0)
                         if user_choice in range(len(self._suits)):
                             active_suit = self._suits[suits_key[user_choice]]
                             break
@@ -344,7 +347,7 @@ class App:
                     Format.prYellow('Enter "help" (h) to view answer,')
                     Format.prYellow('Enter "save" (s) to save question for later learning,')
                     Format.prYellow('Enter "exit" (e) to exit program.')
-                    choice = enter_data_str()
+                    choice: str = enter_data_str()
                     match choice:
                         case 'pass' | 'p':
                             question_counter += 1
@@ -377,10 +380,10 @@ class App:
 
                         case 'exit' | 'e':
                             if question_counter < all_questions_count:
-                                Format.prYellow('Not all questions solved')
+                                Format.prYellow(f'Solved only {question_counter}/{all_questions_count}, session is not ended')
                                 Format.prYellow('Do you want to save current session for later continue? (y/n)')
                                 while True:
-                                    user_choice = enter_data_str()
+                                    user_choice: str = enter_data_str()
                                     match user_choice:
                                         case 'y' | 'yes':
                                             Format.prGreen('Saving file')
@@ -502,12 +505,13 @@ def handle_non_major_error(msg: str):
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
-    # parser = argparse.ArgumentParser('Learn-help', description='App for learning')
-    # parser.add_argument('-h', '--help', action='help')  # TODO
-    # parser.add_argument('-ns', '--new-suit', action='store')
 
-    args: Final[list[str]] = sys.argv
-    # ns = parser.parse_args(args)
+    parser = argparse.ArgumentParser('Learn-help', description='App for learning')
+    parser.add_argument('-ns', '--new-suit', action='store', help='create new test suit with name', required=False)
+
+    args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
+    args: Final[list[str]] = sys.argv if args_length > 1 else []
+    ns = parser.parse_args(args)
 
     app = App()
     app.start_app()
