@@ -7,16 +7,84 @@ import sys
 from collections import OrderedDict
 from os.path import exists
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol
+
+import requests
 
 os.environ['TERM'] = 'xterm-256color'
 
 
+class Data_driver(Protocol):
+    """
+    Save questions on remote drive or load them to local
+    """
+
+    def close_driver(self) -> None: ...
+
+    def upload_questions(self) -> None: ...
+
+    def load_questions_from_remote(self) -> None: ...
+
+
+class Yandex_driver:
+    def close_driver(self) -> None:
+        pass
+
+    def upload_questions(self) -> None:
+        pass
+
+    def load_questions_from_remote(self) -> None:
+        pass
+
+
+class Google_driver:
+    def close_driver(self) -> None:
+        pass
+
+    def upload_questions(self) -> None:
+        pass
+
+    def load_questions_from_remote(self) -> None:
+        pass
+
+
+class AI:
+    """
+    Class for generating answer to question if it not written
+    """
+
+    def __init__(self):
+        pass
+
+    def generate_answer(self, question: str) -> str | None:
+        """
+        Generate answer with AI (yeah, i know)
+        :param question: question to search for
+        :return: string value of question
+        """
+        Format.prYellow('Wait for response from AI')
+        response = requests.get(f'https://yandex.ru/alice/chat&source_query={question}')
+        response.raise_for_status()
+        html_content = response.text
+        soup = BeautifulSoup(html_content, 'html.parser')
+        title_element = soup.find('textarea')
+        title = title_element.string
+        if title != '':
+            return title
+        else:
+            Format.prRed('No answer from AI')
+            return None
+
+
 class Flags:
+    """
+    Utility flags
+    """
     is_random_run: Final[bool] = True  # sequential order if false and random otherwise
     verbose_mode: Final[bool] = True  # output suit name when run
     debug_mode: Final[bool] = False  # for debug msgs
     high_prior: Final[bool] = False  # run only high priority questions
+    is_ai_generating_answer: Final[bool] = False  # generate every answer with AI
 
 
 class Global_statement:
@@ -35,10 +103,14 @@ class Global_statement:
     later_learn_filename: Final[str] = 'todo-learn'
     main_file_name: Final[str] = 'main'
     all_file_name: Final[str] = 'all'
-    app_version: Final[str] = '2.2.1'
+    app_version: Final[str] = '2.3.1'
 
 
 class Global_functions:
+    class Function_id:
+        decide_id_sym: str = 'Decide'
+        dynamic_id_sym: str = 'Dynamic_import'
+
     @staticmethod
     def decide(var_name: str):
         if var_name in Global_statement.all_file_data:
@@ -255,6 +327,8 @@ class App:
         def __init__(self, start_path: str | Path):
             self.start_path = start_path
             dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(self.start_path)))
+            if Flags.is_ai_generating_answer:
+                self.ai_gen = AI()
             if len(dirs) > 0:
                 self._suits = OrderedDict()
                 for dir in dirs:
@@ -342,11 +416,12 @@ class App:
                         Format.prYellow(f'Question suit: {current_question[-1].removeprefix(Syntax_rules.suit_name_symbol)}')
 
                     # print other question data:
-                    Format.prYellow('Enter "pass" (p) to pass question,')
-                    Format.prYellow('Enter "no"   (n) if you do not know answer,')
-                    Format.prYellow('Enter "help" (h) to view answer,')
-                    Format.prYellow('Enter "save" (s) to save question for later learning,')
-                    Format.prYellow('Enter "exit" (e) to exit program.')
+                    Format.prYellow('Enter "pass"   (p) to pass question,')
+                    Format.prYellow('Enter "no"     (n) if you do not know answer,')
+                    Format.prYellow('Enter "help"   (h) to view answer,')
+                    Format.prYellow('Enter "save"   (s) to save question for later learning,')
+                    Format.prYellow('Enter "reload" (r) to reload question suit,')
+                    Format.prYellow('Enter "exit"   (e) to exit program.')
                     choice: str = enter_data_str()
                     match choice:
                         case 'pass' | 'p':
@@ -363,13 +438,16 @@ class App:
                             clear_screen()
 
                         case 'help' | 'h':
-                            if isinstance(current_question, list):
-                                if len(current_question[1]) > 1 and not current_question[1].startswith(Syntax_rules.suit_name_symbol):  # bug fix, when question line with 2 or 3
-                                    Format.prGreen(f'Answer: {current_question[1].capitalize()}')
+                            if Flags.is_ai_generating_answer:
+                                Format.prGreen(f'Answer: {self.ai_gen.generate_answer(current_question)}')
+                            else:
+                                if isinstance(current_question, list):
+                                    if len(current_question[1]) > 1 and not current_question[1].startswith(Syntax_rules.suit_name_symbol):  # bug fix, when question line with 2 or 3
+                                        Format.prGreen(f'Answer: {current_question[1].capitalize()}')
+                                    else:
+                                        Format.prRed('No answer available')
                                 else:
                                     Format.prRed('No answer available')
-                            else:
-                                Format.prRed('No answer available')
 
                         case 'save' | 's':
                             Format.prYellow('Save question for later study')
@@ -377,6 +455,10 @@ class App:
                                 Global_statement.questions_to_learn.append(current_question)
                             else:
                                 Format.prRed('Question already saved')
+
+                        case 'reload' | 'r':
+                            Format.prYellow('Reload')
+                            pass
 
                         case 'exit' | 'e':
                             if question_counter < all_questions_count:
@@ -482,7 +564,8 @@ def fisher_yates_shuffle(arr):
 
 def enter_data_int():
     user_data = int(input('>> '))
-    return user_data
+    if user_data is not None:
+        return user_data
 
 
 def enter_data_str():
