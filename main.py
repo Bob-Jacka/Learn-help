@@ -1,3 +1,7 @@
+"""
+Your training camp on path to your favourite work
+"""
+
 import argparse
 import datetime
 import os.path
@@ -10,6 +14,7 @@ from pathlib import Path
 from typing import Final, Protocol
 
 import requests
+from bs4 import BeautifulSoup
 
 os.environ['TERM'] = 'xterm-256color'
 
@@ -19,11 +24,26 @@ class Data_driver(Protocol):
     Save questions on remote drive or load them to local
     """
 
-    def close_driver(self) -> None: ...
+    def close_driver(self) -> None:
+        """
+        Close running driver
+        :return: None
+        """
+        ...
 
-    def upload_questions(self) -> None: ...
+    def upload_questions(self) -> None:
+        """
+        Upload questions to remote device
+        :return: None
+        """
+        ...
 
-    def load_questions_from_remote(self) -> None: ...
+    def load_questions_from_remote(self) -> None:
+        """
+        Download questions from remote device into local
+        :return:
+        """
+        ...
 
 
 class Yandex_driver:
@@ -56,6 +76,22 @@ class AI:
     def __init__(self):
         pass
 
+    def generate_questions(self, question_topic: str) -> list[str] | None:
+        """
+        Generate questions (more than one) for your question suit
+        :param question_topic: which topic to use to generate
+        :return: list with questions to proceed
+        """
+        pass
+
+    def generate_question(self, question_topic: str) -> str | None:
+        """
+        Generate single question by AI.
+        :param question_topic:  which topic to use to generate
+        :return: questions string
+        """
+        pass
+
     def generate_answer(self, question: str) -> str | None:
         """
         Generate answer with AI (yeah, i know)
@@ -68,77 +104,12 @@ class AI:
         html_content = response.text
         soup = BeautifulSoup(html_content, 'html.parser')
         title_element = soup.find('textarea')
-        title = title_element.string
+        title = title_element.string if title_element.string is not None else ''
         if title != '':
             return title
         else:
             Format.prRed('No answer from AI')
             return None
-
-
-class Flags:
-    """
-    Utility flags
-    """
-    is_random_run: Final[bool] = True  # sequential order if false and random otherwise
-    verbose_mode: Final[bool] = True  # output suit name when run
-    debug_mode: Final[bool] = False  # for debug msgs
-    high_prior: Final[bool] = False  # run only high priority questions
-    is_ai_generating_answer: Final[bool] = False  # generate every answer with AI
-
-
-class Global_statement:
-    """
-    Some constants and global data
-    """
-    # containers
-    questions_to_learn: Final[list[str | list[str]]] = list()  # to do learn
-    all_file_data: Final[dict[str, str | Path]] = dict()  # available paths and variables
-
-    # time functionality:
-    start_time: Final[datetime.datetime] = datetime.datetime.now()
-    finish_time: datetime.datetime
-
-    # consts:
-    later_learn_filename: Final[str] = 'todo-learn'
-    main_file_name: Final[str] = 'main'
-    all_file_name: Final[str] = 'all'
-    app_version: Final[str] = '2.3.1'
-
-
-class Global_functions:
-    class Function_id:
-        decide_id_sym: str = 'Decide'
-        dynamic_id_sym: str = 'Dynamic_import'
-
-    @staticmethod
-    def decide(var_name: str):
-        if var_name in Global_statement.all_file_data:
-            pass
-        else:
-            Format.prRed(f'No global variable found with name - {var_name}')
-
-    @staticmethod
-    def dynamic_import(var_name: str):
-        pass
-
-
-class Syntax_rules:
-    """
-    Syntax rules for suits
-    """
-    # suit file consts:
-    global_import_directive: Final[str] = '.Import_global'
-    local_import_directive: Final[str] = '.Import_local'
-    function_directive: Final[str] = '$Func'
-    comment_symbol: Final[str] = '#'
-    suit_name_symbol: Final[str] = '^'
-
-    statistics_symbol: Final[str] = '#Statistics:'
-
-    # all file config:
-    variable_prefix: Final[str] = 'Var'
-    path_prefix: Final[str] = 'Path'
 
 
 class Format:
@@ -182,10 +153,10 @@ class Suit:
             print(f'{num}: {suit}')
 
     def get_statistics(self) -> None:
-        file_handler = open(Global_statement.main_file_name, 'w+')
+        file_handler = open(App.Global_statement.main_file_name, 'w+')
         main_file_data = file_handler.readlines()
         try:
-            stat_start = main_file_data.index(Syntax_rules.statistics_symbol)  # special commentary for statistics
+            stat_start = main_file_data.index(App.Syntax_rules.statistics_symbol)  # special commentary for statistics
         except ValueError:
             Format.prRed('No statistics in this suit, create partition')
             file_handler.write('\n#Statistics:')
@@ -195,18 +166,14 @@ class Suit:
         Return to user questions that he needs to learn later
         :return: None
         """
-        if len(Global_statement.questions_to_learn) > 0:
-            with open(f'{Global_statement.later_learn_filename}-{datetime.datetime.now().date()}.txt', 'a+') as todo_file:
-                for todo_line in Global_statement.questions_to_learn:
+        if len(App.Global_statement.questions_to_learn) > 0:
+            with open(f'{App.Global_statement.later_learn_filename}-{datetime.datetime.now().date()}.txt', 'a+') as todo_file:
+                for todo_line in App.Global_statement.questions_to_learn:
                     todo_file.write(todo_line if isinstance(todo_line, str) else todo_line[0])
                     todo_file.write('\n')
             Format.prYellow('Questions to learn are written to file')
         else:
             Format.prGreen('No to do questions')
-
-    def add_statistics(self):
-        with open(Global_statement.main_file_name, 'w+') as main_file:
-            pass
 
     def get_question_count(self) -> int:
         return len(self.all_suit_questions)
@@ -218,33 +185,33 @@ class Suit:
         """
         # learn file processing
         try:
-            main_file_data: list[str] = open(self.start_suit_path + os.sep + Global_statement.main_file_name, 'r').readlines()
+            main_file_data: list[str] = open(self.start_suit_path + os.sep + App.Global_statement.main_file_name, 'r').readlines()
 
             for _, suit_line in enumerate(main_file_data):
 
                 # Local import branch:
-                if suit_line.startswith(Syntax_rules.local_import_directive):
+                if suit_line.startswith(App.Syntax_rules.local_import_directive):
                     _, file_to_import = suit_line.split(' ')
 
                     proceed_import_file(self.start_suit_path + os.sep + file_to_import.strip(), self)
                     continue
 
                 # Global import directive:
-                elif suit_line.startswith(Syntax_rules.global_import_directive):
+                elif suit_line.startswith(App.Syntax_rules.global_import_directive):
                     _, name_to_resolve = suit_line.split(' ')
 
                     if '.txt' in name_to_resolve:  # only global name, not path to file
                         raise Exception('Global name should not contain path to file')
 
-                    proceed_import_file(App.resolve_global(clear_string(name_to_resolve)), self)
+                    proceed_import_file(App.resolve_global_dep(clear_string(name_to_resolve)), self)
                     continue
 
                 # comment branch:
-                if suit_line != '\n' and not suit_line.startswith(Syntax_rules.comment_symbol):  # comment symbol
+                if suit_line != '\n' and not suit_line.startswith(App.Syntax_rules.comment_symbol):  # comment symbol
                     self.all_suit_questions.append(clear_string(suit_line))
 
             if len(self.all_suit_questions) > 0:
-                if Flags.is_random_run:
+                if App.Flags.is_random_run:
                     self.all_suit_questions = fisher_yates_shuffle(self.all_suit_questions)  # randomize questions before run
                     Format.prYellow('All questions are up to date and shuffled')
                 else:
@@ -252,74 +219,100 @@ class Suit:
             else:
                 raise Exception('Learn file is empty')
         except Exception as e:
-            if Flags.debug_mode:
+            if App.Flags.debug_mode:
                 pass
                 # TODO print all import suits name
             handle_critical_error(f'Critical exception during question task - {e}')
 
 
 class App:
-
-    def __init__(self):
-        try:
-            self.all_file_data = dict()
-            self.start_path = Path().parent.absolute().as_posix()
-            self.question_runner = App.Question_runner(self.start_path)
-        except Exception as e:
-            handle_critical_error(f'Failed to initialize app with error {e}')
-
-    def __check_for_all(self):
+    class Syntax_rules:
         """
-        Check for all file with paths
-        :return: None
+        Syntax rules for suits
         """
-        if not exists(self.start_path + os.sep + Global_statement.all_file_name):
-            Format.prRed('All file is not created, auto create all file')
-            open(self.start_path + os.sep + Global_statement.all_file_name, 'r').close()
+        # suit file consts:
+        global_import_directive: Final[str] = '.Import_global'
+        local_import_directive: Final[str] = '.Import_local'
+        function_directive: Final[str] = '$Func'
+        comment_symbol: Final[str] = '#'
+        suit_name_symbol: Final[str] = '^'
 
-        file_data = open(self.start_path + os.sep + Global_statement.all_file_name, 'r').readlines()
+        statistics_symbol: Final[str] = '#Statistics:'
 
-        for line in file_data:
-            if line != '' and '=' in line:
+        # all file config:
+        variable_prefix: Final[str] = 'Var'
+        path_prefix: Final[str] = 'Path'
 
-                # path path:
-                if line.startswith(Syntax_rules.path_prefix):
-                    line = line.removeprefix(Syntax_rules.path_prefix)
-                    glob_name, glob_path = line.split('=')
-                    Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
-
-                # variable path:
-                elif line.startswith(Syntax_rules.variable_prefix):
-                    line = line.removeprefix(Syntax_rules.variable_prefix)
-                    glob_name, glob_path = line.split('=')
-                    Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
-
-                else:
-                    Format.prRed(f'Unknown parameter line in all file {line}')
-
-    def start_app(self):
+    class Global_statement:
         """
-        Main app pipeline
-        :return: None
+        Some constants and global data in one class
         """
-        try:
-            self.__check_for_all()
-            clear_screen()
-            self.question_runner.run_question_runner()
-        except Exception as e:
-            handle_critical_error(f'Failed to start app with error - {e}')
+        # containers
+        questions_to_learn: Final[list[str | list[str]]] = list()  # to do learn
+        all_file_data: Final[dict[str, str]] = dict()  # available paths and variables
 
-    @staticmethod
-    def resolve_global(dependency_name: str) -> str | None:
+        # time functionality:
+        start_time: Final[datetime.datetime] = datetime.datetime.now()
+        finish_time: datetime.datetime
+
+        # consts:
+        later_learn_filename: Final[str] = 'todo-learn'
+        main_file_name: Final[str] = 'main'
+        all_file_name: Final[str] = 'all'
+        app_version: Final[str] = '2.3.1'
+
+    class Global_functions:
+        class Function_id:
+            decide_id_sym: str = 'Decide'
+            dynamic_id_sym: str = 'Dynamic_import'
+
+        @staticmethod
+        def decide(var_name: str):
+            """
+            Decide conditions in suit
+            :param var_name: expression
+            :return:
+            """
+            if var_name in App.Global_statement.all_file_data:
+                pass
+            else:
+                Format.prRed(f'No global variable found with name - {var_name}')
+
+        @staticmethod
+        def dynamic_import(var_name: str):
+            pass
+
+        @staticmethod
+        def as_a_separate_suit(separate_suit_name: str):
+            """
+            Use sub suit as a separate suit, ex. you have sub suit, called qa, which has cucumber questions
+            and you want to use this sub suit as a suit, without main file.
+            ex. ex. $Func separe_suit(cucumber)
+            :param separate_suit_name: name of the sub suit
+            :return: None
+            """
+            pass
+
+    class Flags:
         """
-        Resolve global dependencies from all file
-        :return: string path to global dependency or None otherwise
+        Utility flags
         """
-        if dependency_name in Global_statement.all_file_data:
-            return Global_statement.all_file_data[dependency_name]
-        else:
-            Format.prRed(f'No global value found - {dependency_name}, return None instead')
-            return None
+        is_random_run: bool = True  # sequential order if false and random otherwise
+        verbose_mode: bool = True  # output suit name when run
+        debug_mode: bool = False  # for debug msgs
+        high_prior: bool = False  # run only high priority questions
+        is_ai_generating_answer: bool = False  # generate every answer with AI
+
+        def turn_on_flags(self) -> None:
+            self.is_random_run = ns['random_run']
+            self.verbose_mode = ns['verbose_mode']
+            self.debug_mode = ns['debug_mode']
+            self.high_prior = ns['high_prior']
+            self.is_ai_generating_answer = ns['ai']
+
+    class Statistics:
+        def print_statistics(self):
+            pass
 
     class Question_runner:
         _suits: OrderedDict[str, Suit]  # key - suit name, value - suit
@@ -327,7 +320,7 @@ class App:
         def __init__(self, start_path: str | Path):
             self.start_path = start_path
             dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(self.start_path)))
-            if Flags.is_ai_generating_answer:
+            if App.Flags.is_ai_generating_answer:
                 self.ai_gen = AI()
             if len(dirs) > 0:
                 self._suits = OrderedDict()
@@ -411,14 +404,17 @@ class App:
                     print('\n')
                     Format.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question.capitalize() if isinstance(current_question, str) else current_question[0].capitalize()}"')
 
-                    if Flags.verbose_mode:
+                    if App.Flags.verbose_mode:
                         # print suit name:
-                        Format.prYellow(f'Question suit: {current_question[-1].removeprefix(Syntax_rules.suit_name_symbol)}')
+                        Format.prUnderline(f'Question suit: {current_question[-1].removeprefix(App.Syntax_rules.suit_name_symbol)}')
 
                     # print other question data:
                     Format.prYellow('Enter "pass"   (p) to pass question,')
                     Format.prYellow('Enter "no"     (n) if you do not know answer,')
                     Format.prYellow('Enter "help"   (h) to view answer,')
+                    # TODO
+                    # if Flags.debug_mode:
+                    #     Format.prUnderline('Enter "Add" (a) to add answer to question') # to add answer
                     Format.prYellow('Enter "save"   (s) to save question for later learning,')
                     Format.prYellow('Enter "reload" (r) to reload question suit,')
                     Format.prYellow('Enter "exit"   (e) to exit program.')
@@ -433,16 +429,16 @@ class App:
 
                         case 'no' | 'n':
                             Format.prRed('Later check this question')
-                            Global_statement.questions_to_learn.append(current_question)
+                            App.Global_statement.questions_to_learn.append(current_question)
                             question_counter += 1
                             clear_screen()
 
                         case 'help' | 'h':
-                            if Flags.is_ai_generating_answer:
+                            if App.Flags.is_ai_generating_answer:
                                 Format.prGreen(f'Answer: {self.ai_gen.generate_answer(current_question)}')
                             else:
                                 if isinstance(current_question, list):
-                                    if len(current_question[1]) > 1 and not current_question[1].startswith(Syntax_rules.suit_name_symbol):  # bug fix, when question line with 2 or 3
+                                    if len(current_question[1]) > 1 and not current_question[1].startswith(App.Syntax_rules.suit_name_symbol):  # bug fix, when question line with 2 or 3
                                         Format.prGreen(f'Answer: {current_question[1].capitalize()}')
                                     else:
                                         Format.prRed('No answer available')
@@ -451,8 +447,8 @@ class App:
 
                         case 'save' | 's':
                             Format.prYellow('Save question for later study')
-                            if not current_question in Global_statement.questions_to_learn:
-                                Global_statement.questions_to_learn.append(current_question)
+                            if not current_question in App.Global_statement.questions_to_learn:
+                                App.Global_statement.questions_to_learn.append(current_question)
                             else:
                                 Format.prRed('Question already saved')
 
@@ -493,15 +489,76 @@ class App:
                     continue
 
             finish_time = datetime.datetime.now()
-            Format.prYellow(f'learning time - {(finish_time - Global_statement.start_time)}')
+            Format.prYellow(f'learning time - {(finish_time - App.Global_statement.start_time)}')
             active_suit.later_todo()
 
         @staticmethod
         def is_suit(maybe_suit_name: str) -> bool:
             if os.path.isdir(maybe_suit_name):
-                if Global_statement.main_file_name in os.listdir(maybe_suit_name):
+                if App.Global_statement.main_file_name in os.listdir(maybe_suit_name):
                     return True
             return False
+
+    def __init__(self):
+        try:
+            self.all_file_data = dict()
+            self.start_path = Path().parent.absolute().as_posix()
+            self.question_runner = App.Question_runner(self.start_path)
+        except Exception as e:
+            handle_critical_error(f'Failed to initialize app with error {e}')
+
+    def __check_for_all(self):
+        """
+        Check for all file with paths
+        :return: None
+        """
+        if not exists(self.start_path + os.sep + App.Global_statement.all_file_name):
+            Format.prRed('All file is not created, auto create all file')
+            open(self.start_path + os.sep + App.Global_statement.all_file_name, 'r').close()
+
+        file_data = open(self.start_path + os.sep + App.Global_statement.all_file_name, 'r').readlines()
+
+        for line in file_data:
+            if line != '' and '=' in line:
+
+                # path path:
+                if line.startswith(App.Syntax_rules.path_prefix):
+                    line = line.removeprefix(App.Syntax_rules.path_prefix)
+                    glob_name, glob_path = line.split('=')
+                    App.Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
+
+                # variable path:
+                elif line.startswith(App.Syntax_rules.variable_prefix):
+                    line = line.removeprefix(App.Syntax_rules.variable_prefix)
+                    glob_name, glob_path = line.split('=')
+                    App.Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
+
+                else:
+                    Format.prRed(f'Unknown parameter line in all file {line}')
+
+    def start_app(self):
+        """
+        Main app pipeline
+        :return: None
+        """
+        try:
+            self.__check_for_all()
+            clear_screen()
+            self.question_runner.run_question_runner()
+        except Exception as e:
+            handle_critical_error(f'Failed to start app with error - {e}')
+
+    @staticmethod
+    def resolve_global_dep(dependency_name: str) -> str | None:
+        """
+        Resolve global dependencies from all file
+        :return: string path to global dependency or None otherwise
+        """
+        if dependency_name in App.Global_statement.all_file_data:
+            return App.Global_statement.all_file_data[dependency_name]
+        else:
+            Format.prRed(f'No global value found - {dependency_name}, return None instead')
+            return None
 
 
 def signal_handler(sig, frame):
@@ -512,8 +569,8 @@ def signal_handler(sig, frame):
     :return: None
     """
     print('\n')
-    Global_statement.finish_time = datetime.datetime.now()
-    Format.prYellow(f'learning time - {(Global_statement.finish_time - Global_statement.start_time)}')
+    App.Global_statement.finish_time = datetime.datetime.now()
+    Format.prYellow(f'learning time - {(App.Global_statement.finish_time - App.Global_statement.start_time)}')
     Format.prYellow("Out program")
     exit(0)
 
@@ -533,18 +590,18 @@ def proceed_import_file(path_to_read: str | Path, suit: Suit) -> None:
             suit_name: Final[str] = import_file.name  # add suit name
 
             for line in import_file:
-                if line != '\n' and not line.startswith(Syntax_rules.comment_symbol):  # comments
-                    if Flags.verbose_mode:
-                        line += f'|{Syntax_rules.suit_name_symbol}{suit_name}'  # append additional data only in case of verbose flag
+                if line != '\n' and not line.startswith(App.Syntax_rules.comment_symbol):  # comments
+                    if App.Flags.verbose_mode:
+                        line += f'|{App.Syntax_rules.suit_name_symbol}{suit_name}'  # append additional data only in case of verbose flag
 
                     to_return.append(clear_string(line))
 
                 # experimental feature, nested suits
-                elif line.startswith(Syntax_rules.global_import_directive) or line.startswith(Syntax_rules.local_import_directive):
+                elif line.startswith(App.Syntax_rules.global_import_directive) or line.startswith(App.Syntax_rules.local_import_directive):
                     _, file_to_include = line.split('=')
                     proceed_import_file(clear_string(file_to_include), suit)
 
-                elif line.startswith(Syntax_rules.function_directive):  # functions
+                elif line.startswith(App.Syntax_rules.function_directive):  # functions
                     pass
         suit.all_suit_questions.extend(to_return)
     else:
@@ -556,6 +613,11 @@ def clear_screen() -> None:
 
 
 def fisher_yates_shuffle(arr):
+    """
+    Random algorithm for random elements in list
+    :param arr: sequence with elements
+    :return: randomized sequence
+    """
     for i in range(len(arr) - 1, 0, -1):
         j = random.randint(0, i)
         arr[i], arr[j] = arr[j], arr[i]
@@ -566,6 +628,7 @@ def enter_data_int():
     user_data = int(input('>> '))
     if user_data is not None:
         return user_data
+    return None
 
 
 def enter_data_str():
@@ -590,7 +653,12 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
     parser = argparse.ArgumentParser('Learn-help', description='App for learning')
-    parser.add_argument('-ns', '--new-suit', action='store', help='create new test suit with name', required=False)
+    parser.add_argument('-ns', '--new-suit', action='store', help='Create new test suit with name', required=False)
+    parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False)
+    parser.add_argument('-v', '--verbose', action='store', help='More details in messages', required=False)
+    parser.add_argument('-d', '--debug', action='store', help='Debug messages', required=False)
+    parser.add_argument('-hp', '--high-prior', action='store', help='Run only high priority questions', required=False)
+    parser.add_argument('-ai', '--is-ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False)
 
     args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
     args: Final[list[str]] = sys.argv if args_length > 1 else []
