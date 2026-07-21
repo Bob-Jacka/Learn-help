@@ -1,5 +1,6 @@
 """
-Your training camp on path to your favourite work
+Your training camp on path to your favourite work,
+Learn new by repeating boring questions.
 """
 
 import argparse
@@ -8,6 +9,7 @@ import os.path
 import random
 import signal
 import sys
+from argparse import Namespace
 from collections import OrderedDict
 from os.path import exists
 from pathlib import Path
@@ -31,14 +33,14 @@ class Data_driver(Protocol):
         """
         ...
 
-    def upload_questions(self) -> None:
+    def upload_questions(self, question_list) -> None:
         """
         Upload questions to remote device
         :return: None
         """
         ...
 
-    def load_questions_from_remote(self) -> None:
+    def load_questions_from_remote(self) -> list:
         """
         Download questions from remote device into local
         :return:
@@ -50,10 +52,10 @@ class Yandex_driver:
     def close_driver(self) -> None:
         pass
 
-    def upload_questions(self) -> None:
+    def upload_questions(self, question_list) -> None:
         pass
 
-    def load_questions_from_remote(self) -> None:
+    def load_questions_from_remote(self) -> list:
         pass
 
 
@@ -61,10 +63,10 @@ class Google_driver:
     def close_driver(self) -> None:
         pass
 
-    def upload_questions(self) -> None:
+    def upload_questions(self, question_list) -> None:
         pass
 
-    def load_questions_from_remote(self) -> None:
+    def load_questions_from_remote(self) -> list:
         pass
 
 
@@ -217,7 +219,13 @@ class Suit:
                 else:
                     Format.prYellow('Run in sequential mode')
             else:
-                raise Exception('Learn file is empty')
+                if data_driver is None:
+                    Format.prRed('Cannot use Data driver, because driver is None')
+                    raise Exception('Learn file is empty, cannot execute')
+                else:
+                    #TODO
+                    Format.prGreen('Using Data driver to load questions')
+                    self.all_suit_questions = data_driver.load_questions_from_remote()
         except Exception as e:
             if App.Flags.debug_mode:
                 pass
@@ -257,9 +265,10 @@ class App:
 
         # consts:
         later_learn_filename: Final[str] = 'todo-learn'
-        main_file_name: Final[str] = 'main'
-        all_file_name: Final[str] = 'all'
-        app_version: Final[str] = '2.3.1'
+        main_file_name: Final[str] = '__main__'
+        all_file_name: Final[str] = '__all__'
+        global_dir_name: Final[str] = '__global__'
+        app_version: Final[str] = '2.4.1'
 
     class Global_functions:
         class Function_id:
@@ -499,13 +508,31 @@ class App:
                     return True
             return False
 
-    def __init__(self):
+    def __init__(self, namespace: Namespace = None):
         try:
             self.all_file_data = dict()
             self.start_path = Path().parent.absolute().as_posix()
             self.question_runner = App.Question_runner(self.start_path)
         except Exception as e:
             handle_critical_error(f'Failed to initialize app with error {e}')
+
+    def __check_for_global(self):
+        """
+        Check for global files (suits)
+        :return: None
+        """
+        if not exists(self.start_path + os.sep + App.Global_statement.global_dir_name):
+            Format.prRed('Global data directory is not created, auto create global directory')
+            os.mkdir(self.start_path + os.sep + App.Global_statement.global_dir_name)
+
+        dir_data = os.listdir(self.start_path + os.sep + App.Global_statement.global_dir_name)
+        if len(dir_data) > 0:
+            for file_line in dir_data:
+                # insert global path as a value
+                App.Global_statement.all_file_data[clear_string(file_line.removesuffix('.txt') if '.txt' in file_line else file_line)] = (
+                    clear_string(self.start_path + os.sep + App.Global_statement.global_dir_name + os.sep + file_line))
+        else:
+            Format.prYellow('Global directory is empty, fill it with global files!')
 
     def __check_for_all(self):
         """
@@ -542,7 +569,10 @@ class App:
         :return: None
         """
         try:
+            # checks for question runner filesystem:
             self.__check_for_all()
+            self.__check_for_global()
+
             clear_screen()
             self.question_runner.run_question_runner()
         except Exception as e:
@@ -575,7 +605,7 @@ def signal_handler(sig, frame):
     exit(0)
 
 
-def proceed_import_file(path_to_read: str | Path, suit: Suit) -> None:
+def proceed_import_file(path_to_read: str, suit: Suit) -> None:
     """
     Proceed file to import and return its data
     :param suit: suit to add data
@@ -605,14 +635,14 @@ def proceed_import_file(path_to_read: str | Path, suit: Suit) -> None:
                     pass
         suit.all_suit_questions.extend(to_return)
     else:
-        Format.prRed(f'Path to import file is not exists: {path_to_read}')
+        Format.prRed(f'Path to import file is not exists: "{path_to_read}"')
 
 
 def clear_screen() -> None:
     os.system('clear')
 
 
-def fisher_yates_shuffle(arr):
+def fisher_yates_shuffle(arr) -> list:
     """
     Random algorithm for random elements in list
     :param arr: sequence with elements
@@ -621,7 +651,7 @@ def fisher_yates_shuffle(arr):
     for i in range(len(arr) - 1, 0, -1):
         j = random.randint(0, i)
         arr[i], arr[j] = arr[j], arr[i]
-    return arr
+    return list(arr)
 
 
 def enter_data_int():
@@ -645,10 +675,6 @@ def handle_critical_error(msg: str):
     exit(1)
 
 
-def handle_non_major_error(msg: str):
-    Format.prRed(msg)
-
-
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
@@ -664,5 +690,6 @@ if __name__ == '__main__':
     args: Final[list[str]] = sys.argv if args_length > 1 else []
     ns = parser.parse_args(args)
 
-    app = App()
+    data_driver: Data_driver | None = None
+    app = App(ns)
     app.start_app()
