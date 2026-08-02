@@ -1,4 +1,4 @@
 pip >26.1
 requests
-beautifulsoup4
-yadisk
+fastapi
+pyqt6

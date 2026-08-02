@@ -1,6 +1,6 @@
 """
 Your training camp on path to your favourite work,
-Learn new by repeating boring questions.
+Learn new by repeating boring questions again and again.
 """
 
 import argparse
@@ -8,65 +8,40 @@ import datetime
 import os.path
 import random
 import signal
+import subprocess
 import sys
 from argparse import Namespace
 from collections import OrderedDict
 from os.path import exists
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Final
 
-import requests
-from bs4 import BeautifulSoup
+from fastapi import FastAPI
+
+try:
+    # TODO move AI and Data driver into separate local libraries and connect them
+    pass
+except Exception:
+    pass
 
 os.environ['TERM'] = 'xterm-256color'
+start_path: str = Path().parent.absolute().as_posix()
+web_server: FastAPI = FastAPI(description="Small web server for sending question data to mobile app")
 
 
-class Data_driver(Protocol):
+@web_server.post("/send")
+def send_data():
+    App.check_for_all()
+    App.check_for_global()
+    return get_suits(with_questions=True)
+
+
+class UI:
     """
-    Save questions on remote drive or load them to local
+    Pyqt based ui
     """
 
-    def close_driver(self) -> None:
-        """
-        Close running driver
-        :return: None
-        """
-        ...
-
-    def upload_questions(self, question_list) -> None:
-        """
-        Upload questions to remote device
-        :return: None
-        """
-        ...
-
-    def load_questions_from_remote(self) -> list:
-        """
-        Download questions from remote device into local
-        :return:
-        """
-        ...
-
-
-class Yandex_driver:
-    def close_driver(self) -> None:
-        pass
-
-    def upload_questions(self, question_list) -> None:
-        pass
-
-    def load_questions_from_remote(self) -> list:
-        pass
-
-
-class Google_driver:
-    def close_driver(self) -> None:
-        pass
-
-    def upload_questions(self, question_list) -> None:
-        pass
-
-    def load_questions_from_remote(self) -> list:
+    def __init__(self):
         pass
 
 
@@ -74,7 +49,7 @@ class AI:
     """
     Class for generating answer to question if it not written
     """
-
+    # TODO
     def __init__(self):
         pass
 
@@ -83,6 +58,14 @@ class AI:
         Generate questions (more than one) for your question suit
         :param question_topic: which topic to use to generate
         :return: list with questions to proceed
+        """
+        pass
+
+    def decide_which_suit_questions_use(self, suit_names: list[str]):
+        """
+        Ask AI about what suit to use (need to declare function in suit to ask)
+        :param suit_names:
+        :return:
         """
         pass
 
@@ -100,18 +83,7 @@ class AI:
         :param question: question to search for
         :return: string value of question
         """
-        Format.prYellow('Wait for response from AI')
-        response = requests.get(f'https://yandex.ru/alice/chat&source_query={question}')
-        response.raise_for_status()
-        html_content = response.text
-        soup = BeautifulSoup(html_content, 'html.parser')
-        title_element = soup.find('textarea')
-        title = title_element.string if title_element.string is not None else ''
-        if title != '':
-            return title
-        else:
-            Format.prRed('No answer from AI')
-            return None
+        pass
 
 
 class Format:
@@ -141,7 +113,27 @@ class Format:
         print("\033[4m {}\033[0m".format(string))
 
 
+class Question:
+    pass
+
+
+class Simple_question(Question):
+    question: str
+    answer: str | None
+
+
+class Question_with_variants(Question):
+    variants: list
+
+
+class Question_with_ai_check(Question):
+    pass
+
+
 class Suit:
+    """
+    Aka directory with text files, where stored questions
+    """
     start_suit_path: str
     suit_files: list[str]  # list with suit files
     all_suit_questions: list[str]
@@ -149,6 +141,16 @@ class Suit:
     def __init__(self, suit_start):
         self.start_suit_path = suit_start
         self.all_suit_questions = list()
+
+    def get_suit_questions(self):
+        return self.all_suit_questions
+
+    @staticmethod
+    def is_suit(maybe_suit_name: str) -> bool:
+        if os.path.isdir(maybe_suit_name):
+            if App.Global_statement.main_file_name in os.listdir(maybe_suit_name):
+                return True
+        return False
 
     def show_suit_files(self):
         for num, suit in enumerate(self.suit_files, start=1):
@@ -180,6 +182,18 @@ class Suit:
     def get_question_count(self) -> int:
         return len(self.all_suit_questions)
 
+    def change_suit(self) -> bool:
+        """
+        Dynamic change suits when run
+        :return: bool result of changing suit
+        """
+        pass
+
+    @staticmethod
+    def get_suit_name(question_line: list) -> str:
+        # TODO cut path to suit
+        return question_line[-1].removeprefix(App.Syntax_rules.suit_name_symbol)
+
     def get_questions(self):
         """
         Get questions from file and randomize them
@@ -189,10 +203,11 @@ class Suit:
         try:
             main_file_data: list[str] = open(self.start_suit_path + os.sep + App.Global_statement.main_file_name, 'r').readlines()
 
-            for _, suit_line in enumerate(main_file_data):
+            for suit_line in main_file_data:
 
                 # Local import branch:
                 if suit_line.startswith(App.Syntax_rules.local_import_directive):
+                    # TODO add * (start) parameter, add local files with one import directive
                     _, file_to_import = suit_line.split(' ')
 
                     proceed_import_file(self.start_suit_path + os.sep + file_to_import.strip(), self)
@@ -218,18 +233,21 @@ class Suit:
                     Format.prYellow('All questions are up to date and shuffled')
                 else:
                     Format.prYellow('Run in sequential mode')
-            else:
-                if data_driver is None:
-                    Format.prRed('Cannot use Data driver, because driver is None')
-                    raise Exception('Learn file is empty, cannot execute')
-                else:
-                    #TODO
-                    Format.prGreen('Using Data driver to load questions')
-                    self.all_suit_questions = data_driver.load_questions_from_remote()
+                    # TODO
+                    # TODO
+            # else:
+            #     if App.data_driver is None:
+            #         Format.prRed('Cannot use Data driver, because driver is None')
+            #         raise Exception('Learn file is empty, cannot execute')
+            #     else:
+            #         # TODO
+            #         Format.prGreen('Using Data driver to load questions')
+            #         self.all_suit_questions = App.data_driver.load_questions_from_remote()
         except Exception as e:
             if App.Flags.debug_mode:
-                pass
-                # TODO print all import suits name
+                Format.prRed(f'Using start path - {self.start_suit_path}')
+                for file in self.suit_files:
+                    print(file)
             handle_critical_error(f'Critical exception during question task - {e}')
 
 
@@ -302,6 +320,10 @@ class App:
             """
             pass
 
+        @staticmethod
+        def ask_ai_about_which_suit_to_run(skills_for_job: list[str]):
+            pass
+
     class Flags:
         """
         Utility flags
@@ -326,18 +348,9 @@ class App:
     class Question_runner:
         _suits: OrderedDict[str, Suit]  # key - suit name, value - suit
 
-        def __init__(self, start_path: str | Path):
-            self.start_path = start_path
-            dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(self.start_path)))
-            if App.Flags.is_ai_generating_answer:
-                self.ai_gen = AI()
-            if len(dirs) > 0:
-                self._suits = OrderedDict()
-                for dir in dirs:
-                    if self.is_suit(dir):
-                        self._suits[dir] = Suit(dir)
-            else:
-                handle_critical_error('No files found')
+        def __init__(self):
+            suits = get_suits()
+            self._suits = suits if suits is not None else OrderedDict()
 
         def run_question_runner(self):
             """
@@ -388,10 +401,10 @@ class App:
                             continue
 
                 elif len(self._suits) == 1:
-                    active_suit = list(self._suits.items())[0][1]
+                    active_suit = list(self._suits.items())[0][1]  # if only one suit, just take first
 
                 if active_suit is not None:
-                    active_suit.get_questions()  # try search for current directory anyway
+                    active_suit.get_questions()  # TODO split into separate function
                 else:
                     handle_critical_error('No active suit')
 
@@ -399,8 +412,12 @@ class App:
                 handle_critical_error('No CLI arguments passed')
 
             # main utility logic:
-            question_counter: int = 0
-            all_questions_count: Final[int] = active_suit.get_question_count()
+            question_counter: int = 0  # position of question in suit
+            all_questions_count: Final[int] = active_suit.get_question_count()  # how many questions to run
+            if App.Flags.debug_mode:
+                print('Run these files in suit:')  # print files that includes in suit
+                for num, suit_file in enumerate(active_suit.suit_files):
+                    print(f'{num}: {suit_file}')
             while True:
                 current_question: str | list[str] = active_suit.all_suit_questions[question_counter]  # str for old format
 
@@ -415,15 +432,17 @@ class App:
 
                     if App.Flags.verbose_mode:
                         # print suit name:
-                        Format.prUnderline(f'Question suit: {current_question[-1].removeprefix(App.Syntax_rules.suit_name_symbol)}')
+                        Format.prUnderline(f'Question suit: {Suit.get_suit_name(question_line=current_question)}')
 
                     # print other question data:
                     Format.prYellow('Enter "pass"   (p) to pass question,')
                     Format.prYellow('Enter "no"     (n) if you do not know answer,')
                     Format.prYellow('Enter "help"   (h) to view answer,')
                     # TODO
-                    # if Flags.debug_mode:
-                    #     Format.prUnderline('Enter "Add" (a) to add answer to question') # to add answer
+                    if App.Flags.debug_mode:
+                        Format.prUnderline('Enter "ans" (a) to add answer')  # to add answer
+                        Format.prUnderline('Enter "add" (add) to add question to suit')
+                        # self._suits[Suit.get_suit_name(current_question)]
                     Format.prYellow('Enter "save"   (s) to save question for later learning,')
                     Format.prYellow('Enter "reload" (r) to reload question suit,')
                     Format.prYellow('Enter "exit"   (e) to exit program.')
@@ -501,49 +520,46 @@ class App:
             Format.prYellow(f'learning time - {(finish_time - App.Global_statement.start_time)}')
             active_suit.later_todo()
 
-        @staticmethod
-        def is_suit(maybe_suit_name: str) -> bool:
-            if os.path.isdir(maybe_suit_name):
-                if App.Global_statement.main_file_name in os.listdir(maybe_suit_name):
-                    return True
-            return False
-
     def __init__(self, namespace: Namespace = None):
         try:
-            self.all_file_data = dict()
-            self.start_path = Path().parent.absolute().as_posix()
-            self.question_runner = App.Question_runner(self.start_path)
+            # create app entities:
+            self.ui = UI()
+            self.all_file_data: dict[str, str] = dict()
+            # self.data_driver: Data_driver | None = None
+            self.statistic = App.Statistics()
+            self.question_runner = App.Question_runner()
         except Exception as e:
             handle_critical_error(f'Failed to initialize app with error {e}')
 
-    def __check_for_global(self):
+    @staticmethod
+    def check_for_global() -> None:
         """
         Check for global files (suits)
         :return: None
         """
-        if not exists(self.start_path + os.sep + App.Global_statement.global_dir_name):
+        if not exists(start_path + os.sep + App.Global_statement.global_dir_name):
             Format.prRed('Global data directory is not created, auto create global directory')
-            os.mkdir(self.start_path + os.sep + App.Global_statement.global_dir_name)
-
-        dir_data = os.listdir(self.start_path + os.sep + App.Global_statement.global_dir_name)
+            os.mkdir(start_path + os.sep + App.Global_statement.global_dir_name)
+        dir_data = os.listdir(start_path + os.sep + App.Global_statement.global_dir_name)
         if len(dir_data) > 0:
             for file_line in dir_data:
                 # insert global path as a value
                 App.Global_statement.all_file_data[clear_string(file_line.removesuffix('.txt') if '.txt' in file_line else file_line)] = (
-                    clear_string(self.start_path + os.sep + App.Global_statement.global_dir_name + os.sep + file_line))
+                    clear_string(start_path + os.sep + App.Global_statement.global_dir_name + os.sep + file_line))
         else:
             Format.prYellow('Global directory is empty, fill it with global files!')
 
-    def __check_for_all(self):
+    @staticmethod
+    def check_for_all() -> None:
         """
         Check for all file with paths
         :return: None
         """
-        if not exists(self.start_path + os.sep + App.Global_statement.all_file_name):
+        if not exists(start_path + os.sep + App.Global_statement.all_file_name):
             Format.prRed('All file is not created, auto create all file')
-            open(self.start_path + os.sep + App.Global_statement.all_file_name, 'r').close()
+            open(start_path + os.sep + App.Global_statement.all_file_name, 'r').close()
 
-        file_data = open(self.start_path + os.sep + App.Global_statement.all_file_name, 'r').readlines()
+        file_data = open(start_path + os.sep + App.Global_statement.all_file_name, 'r').readlines()
 
         for line in file_data:
             if line != '' and '=' in line:
@@ -570,13 +586,16 @@ class App:
         """
         try:
             # checks for question runner filesystem:
-            self.__check_for_all()
-            self.__check_for_global()
+            self.check_for_all()
+            self.check_for_global()
 
             clear_screen()
             self.question_runner.run_question_runner()
         except Exception as e:
             handle_critical_error(f'Failed to start app with error - {e}')
+
+    def exit_from_app(self):
+        self.statistic.print_statistics()
 
     @staticmethod
     def resolve_global_dep(dependency_name: str) -> str | None:
@@ -587,8 +606,25 @@ class App:
         if dependency_name in App.Global_statement.all_file_data:
             return App.Global_statement.all_file_data[dependency_name]
         else:
-            Format.prRed(f'No global value found - {dependency_name}, return None instead')
+            Format.prRed(f'No global value found: "{dependency_name}", return "None" instead')
             return None
+
+
+def get_suits(with_questions: bool = False) -> OrderedDict[str, Suit] | None:
+    suits: OrderedDict[str, Suit]
+    dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(start_path)))
+    if len(dirs) > 0:
+        suits = OrderedDict()
+        for dir in dirs:
+            if Suit.is_suit(dir):
+                suit = Suit(dir)
+                if with_questions:
+                    suit.get_questions()  # init questions (parse them)
+                suits[dir] = suit
+        return suits
+    else:
+        handle_critical_error('No files found')
+        return None
 
 
 def signal_handler(sig, frame):
@@ -678,18 +714,27 @@ def handle_critical_error(msg: str):
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
-    parser = argparse.ArgumentParser('Learn-help', description='App for learning')
-    parser.add_argument('-ns', '--new-suit', action='store', help='Create new test suit with name', required=False)
-    parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False)
-    parser.add_argument('-v', '--verbose', action='store', help='More details in messages', required=False)
-    parser.add_argument('-d', '--debug', action='store', help='Debug messages', required=False)
-    parser.add_argument('-hp', '--high-prior', action='store', help='Run only high priority questions', required=False)
-    parser.add_argument('-ai', '--is-ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False)
+    Format.prYellow('Choose app mode:')
+    print('1. Web server (for mobile app only)')
+    print('2. Usual mode (question runner)')
+    user_choice = enter_data_int()
 
-    args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
-    args: Final[list[str]] = sys.argv if args_length > 1 else []
-    ns = parser.parse_args(args)
+    if user_choice == 1:
+        # run uvicorn web server
+        subprocess.run("uvicorn main:web_server --reload", shell=True, capture_output=False, text=True)
+    else:
+        parser = argparse.ArgumentParser('Learn-help', description='App for learning')
+        parser.add_argument('-ns', '--new-suit', action='store', help='Create new test suit with name', required=False)
+        parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False)
+        parser.add_argument('-v', '--verbose', action='store', help='More details in messages', required=False)
+        parser.add_argument('-d', '--debug', action='store', help='Debug messages', required=False)
+        parser.add_argument('-hp', '--high-prior', action='store', help='Run only high priority questions', required=False)
+        parser.add_argument('-ai', '--is-ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False)
 
-    data_driver: Data_driver | None = None
-    app = App(ns)
-    app.start_app()
+        args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
+        args: Final[list[str]] = sys.argv if args_length > 1 else []
+        ns = parser.parse_args(args)
+
+        app = App(ns)
+        app.start_app()
+        app.exit_from_app()
