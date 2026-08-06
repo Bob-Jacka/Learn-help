@@ -3,3 +3,7 @@
 todo-learn.txt
 todo-learn-*.txt
 learn-*.txt
+*.txt
+__global__
+__tasks__
+__main__

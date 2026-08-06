@@ -16,74 +16,14 @@ from os.path import exists
 from pathlib import Path
 from typing import Final
 
-from fastapi import FastAPI
+from PyQt6 import QtWidgets
+from PyQt6.QtWidgets import QMessageBox, QDialog
 
-try:
-    # TODO move AI and Data driver into separate local libraries and connect them
-    pass
-except Exception:
-    pass
+from AI import AI
+from UI import UI, Choose_suit_dialog
 
 os.environ['TERM'] = 'xterm-256color'
-start_path: str = Path().parent.absolute().as_posix()
-web_server: FastAPI = FastAPI(description="Small web server for sending question data to mobile app")
-
-
-@web_server.post("/send")
-def send_data():
-    App.check_for_all()
-    App.check_for_global()
-    return get_suits(with_questions=True)
-
-
-class UI:
-    """
-    Pyqt based ui
-    """
-
-    def __init__(self):
-        pass
-
-
-class AI:
-    """
-    Class for generating answer to question if it not written
-    """
-    # TODO
-    def __init__(self):
-        pass
-
-    def generate_questions(self, question_topic: str) -> list[str] | None:
-        """
-        Generate questions (more than one) for your question suit
-        :param question_topic: which topic to use to generate
-        :return: list with questions to proceed
-        """
-        pass
-
-    def decide_which_suit_questions_use(self, suit_names: list[str]):
-        """
-        Ask AI about what suit to use (need to declare function in suit to ask)
-        :param suit_names:
-        :return:
-        """
-        pass
-
-    def generate_question(self, question_topic: str) -> str | None:
-        """
-        Generate single question by AI.
-        :param question_topic:  which topic to use to generate
-        :return: questions string
-        """
-        pass
-
-    def generate_answer(self, question: str) -> str | None:
-        """
-        Generate answer with AI (yeah, i know)
-        :param question: question to search for
-        :return: string value of question
-        """
-        pass
+start_path: Final[str] = Path().parent.absolute().as_posix()
 
 
 class Format:
@@ -114,20 +54,51 @@ class Format:
 
 
 class Question:
-    pass
+    """
+    Just marker class for questions
+    """
+    question: str
 
 
 class Simple_question(Question):
-    question: str
     answer: str | None
 
 
 class Question_with_variants(Question):
-    variants: list
+    """
+    Question with several options,
+    example:
+    What came before
+    1. Egg,
+    2. Chicken
+
+    or maybe more options
+    """
+    variants: dict[int, str]
 
 
 class Question_with_ai_check(Question):
-    pass
+    """
+    User answers and AI check this answer
+    """
+
+    def get_answer(self):
+        pass
+
+
+class Question_with_timer(Question):
+    """
+    Small time to answer question
+    """
+    time_to_wait: Final[int] = 10  # how many seconds to wait for answer
+    answer: str | None
+
+
+class Task_with_writing_code(Question):
+    """
+    Give user a task and wait him to answer, then show correct answer
+    """
+    answer: str | None
 
 
 class Suit:
@@ -135,18 +106,23 @@ class Suit:
     Aka directory with text files, where stored questions
     """
     start_suit_path: str
-    suit_files: list[str]  # list with suit files
+    suit_files: list[str]  # list with suit files names
     all_suit_questions: list[str]
 
     def __init__(self, suit_start):
         self.start_suit_path = suit_start
         self.all_suit_questions = list()
 
-    def get_suit_questions(self):
+    def get_suit_questions(self) -> list[str]:
         return self.all_suit_questions
 
     @staticmethod
     def is_suit(maybe_suit_name: str) -> bool:
+        """
+        Check that directory is suit by contract
+        :param maybe_suit_name: path or name of suit
+        :return: bool result
+        """
         if os.path.isdir(maybe_suit_name):
             if App.Global_statement.main_file_name in os.listdir(maybe_suit_name):
                 return True
@@ -333,6 +309,7 @@ class App:
         debug_mode: bool = False  # for debug msgs
         high_prior: bool = False  # run only high priority questions
         is_ai_generating_answer: bool = False  # generate every answer with AI
+        is_graphical_mode: bool  # False for console mode and True for graphical user interface
 
         def turn_on_flags(self) -> None:
             self.is_random_run = ns['random_run']
@@ -349,12 +326,55 @@ class App:
         _suits: OrderedDict[str, Suit]  # key - suit name, value - suit
 
         def __init__(self):
-            suits = get_suits()
+            suits = App.get_suits()
             self._suits = suits if suits is not None else OrderedDict()
+            if App.Flags.is_graphical_mode:
+                self.outer_app = QtWidgets.QApplication(args)
+                self.main_window: Final[UI] = UI()
+                self.main_window.setup_slots()
+                self.main_window.show()
 
-        def run_question_runner(self):
+        def run_question_runner_graphical(self):
             """
-            Run main app activity
+            Run main app activity in graphical user interface
+            :return: None
+            """
+            suits_key: Final[list[str]] = list()
+            active_suit: Suit = None
+            if len(self._suits) > 1:
+                for suit_num, suit_name in enumerate(self._suits):
+                    suits_key.append(suit_name)  # add suit name into keys
+
+                QMessageBox(QMessageBox.Icon.Information, 'Info', 'Detected several available suits:').exec()
+
+                msg_box = QMessageBox.question(None, "Question", "Would you like to take first (Yes) or see all suits (No)", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if msg_box == QMessageBox.StandardButton.Yes:
+                    active_suit = list(self._suits.items())[0][1]
+                else:
+                    # if user wants to choose suit by himself
+                    combo_suits = Choose_suit_dialog(options=self._suits)
+                    if combo_suits.exec() == QDialog.DialogCode.Accepted:
+                        chosen_suit = combo_suits.result
+                    else:
+                        chosen_suit = ""
+
+                    active_suit = self._suits[chosen_suit]
+
+
+            elif len(self._suits) == 1:
+                active_suit = list(self._suits.items())[0][1]  # if only one suit, just take first
+
+            active_suit.get_questions()
+            all_questions_count: Final[int] = active_suit.get_question_count()  # how many questions to run
+            question_counter: int = 0  # position of question in suit
+            while True:
+                current_question: str | list[str] = active_suit.all_suit_questions[question_counter]  # str for old format
+                self.main_window.take_question(current_question)
+                # TODO there is a problem with stopping app in infinity loop
+
+        def run_question_runner_console(self):
+            """
+            Run main app activity in console
             :return: None
             """
             active_suit: Suit = None
@@ -404,7 +424,7 @@ class App:
                     active_suit = list(self._suits.items())[0][1]  # if only one suit, just take first
 
                 if active_suit is not None:
-                    active_suit.get_questions()  # TODO split into separate function
+                    active_suit.get_questions()
                 else:
                     handle_critical_error('No active suit')
 
@@ -523,7 +543,7 @@ class App:
     def __init__(self, namespace: Namespace = None):
         try:
             # create app entities:
-            self.ui = UI()
+            self.ai_gen = AI()
             self.all_file_data: dict[str, str] = dict()
             # self.data_driver: Data_driver | None = None
             self.statistic = App.Statistics()
@@ -552,7 +572,7 @@ class App:
     @staticmethod
     def check_for_all() -> None:
         """
-        Check for all file with paths
+        Check for all file with paths and global variables
         :return: None
         """
         if not exists(start_path + os.sep + App.Global_statement.all_file_name):
@@ -590,11 +610,16 @@ class App:
             self.check_for_global()
 
             clear_screen()
-            self.question_runner.run_question_runner()
+            if not App.Flags.is_graphical_mode:
+                self.question_runner.run_question_runner_console()
+            else:
+                self.question_runner.run_question_runner_graphical()
         except Exception as e:
             handle_critical_error(f'Failed to start app with error - {e}')
 
     def exit_from_app(self):
+        if App.Flags.is_graphical_mode:
+            sys.exit(self.question_runner.outer_app.exec())
         self.statistic.print_statistics()
 
     @staticmethod
@@ -609,39 +634,25 @@ class App:
             Format.prRed(f'No global value found: "{dependency_name}", return "None" instead')
             return None
 
-
-def get_suits(with_questions: bool = False) -> OrderedDict[str, Suit] | None:
-    suits: OrderedDict[str, Suit]
-    dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(start_path)))
-    if len(dirs) > 0:
-        suits = OrderedDict()
-        for dir in dirs:
-            if Suit.is_suit(dir):
-                suit = Suit(dir)
-                if with_questions:
-                    suit.get_questions()  # init questions (parse them)
-                suits[dir] = suit
-        return suits
-    else:
-        handle_critical_error('No files found')
-        return None
-
-
-def signal_handler(sig, frame):
-    """
-    Handle sig int command
-    :param sig: signal
-    :param frame: function to execute in case of signal
-    :return: None
-    """
-    print('\n')
-    App.Global_statement.finish_time = datetime.datetime.now()
-    Format.prYellow(f'learning time - {(App.Global_statement.finish_time - App.Global_statement.start_time)}')
-    Format.prYellow("Out program")
-    exit(0)
+    @staticmethod
+    def get_suits(with_questions: bool = False) -> OrderedDict[str, Suit] | None:
+        suits: OrderedDict[str, Suit]
+        dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(start_path)))
+        if len(dirs) > 0:
+            suits = OrderedDict()
+            for dir in dirs:
+                if Suit.is_suit(dir):
+                    suit = Suit(dir)
+                    if with_questions:
+                        suit.get_questions()  # init questions (parse them)
+                    suits[dir] = suit
+            return suits
+        else:
+            handle_critical_error('No files found')
+            return None
 
 
-def proceed_import_file(path_to_read: str, suit: Suit) -> None:
+def proceed_import_file(path_to_read: str | None, suit: Suit) -> None:
     """
     Proceed file to import and return its data
     :param suit: suit to add data
@@ -674,8 +685,23 @@ def proceed_import_file(path_to_read: str, suit: Suit) -> None:
         Format.prRed(f'Path to import file is not exists: "{path_to_read}"')
 
 
+def signal_handler(sig, frame):
+    """
+    Handle sig int command
+    :param sig: signal
+    :param frame: function to execute in case of signal
+    :return: None
+    """
+    print('\n')
+    App.Global_statement.finish_time = datetime.datetime.now()
+    Format.prYellow(f'learning time - {(App.Global_statement.finish_time - App.Global_statement.start_time)}')
+    Format.prYellow("Out program")
+    app.exit_from_app()
+    exit(0)
+
+
 def clear_screen() -> None:
-    os.system('clear')
+    subprocess.run('clear')
 
 
 def fisher_yates_shuffle(arr) -> list:
@@ -690,14 +716,14 @@ def fisher_yates_shuffle(arr) -> list:
     return list(arr)
 
 
-def enter_data_int():
+def enter_data_int() -> int | None:
     user_data = int(input('>> '))
     if user_data is not None:
         return user_data
     return None
 
 
-def enter_data_str():
+def enter_data_str() -> str:
     user_data = input('>> ')
     return user_data
 
@@ -708,6 +734,7 @@ def clear_string(string: str) -> str:
 
 def handle_critical_error(msg: str):
     Format.prRed(msg)
+    app.exit_from_app()
     exit(1)
 
 
@@ -715,14 +742,24 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
     Format.prYellow('Choose app mode:')
-    print('1. Web server (for mobile app only)')
-    print('2. Usual mode (question runner)')
+    print('1. Web server (for mobile app transfer data only)')
+    print('2. Usual mode (question runner in console)')
+    print('3. Graphical mode (question runner in graphical app)')
     user_choice = enter_data_int()
 
     if user_choice == 1:
-        # run uvicorn web server
-        subprocess.run("uvicorn main:web_server --reload", shell=True, capture_output=False, text=True)
+        from Web_module import web_server
+
+        # run uvicorn web server to connect with mobile app
+        print(f'Documentation: {web_server.docs_url}')
+        subprocess.run("uvicorn Web_module:web_server --reload --host 0.0.0.0 --port 8000", shell=True, capture_output=False, text=True)
+
     else:
+        App.Flags.is_graphical_mode = False if user_choice == 2 else True
+
+        args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
+        args: Final[list[str]] = sys.argv if args_length > 1 else []
+
         parser = argparse.ArgumentParser('Learn-help', description='App for learning')
         parser.add_argument('-ns', '--new-suit', action='store', help='Create new test suit with name', required=False)
         parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False)
@@ -731,10 +768,8 @@ if __name__ == '__main__':
         parser.add_argument('-hp', '--high-prior', action='store', help='Run only high priority questions', required=False)
         parser.add_argument('-ai', '--is-ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False)
 
-        args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
-        args: Final[list[str]] = sys.argv if args_length > 1 else []
         ns = parser.parse_args(args)
 
-        app = App(ns)
+        app: Final[App] = App(ns)
         app.start_app()
         app.exit_from_app()
