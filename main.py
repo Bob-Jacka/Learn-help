@@ -12,6 +12,7 @@ import subprocess
 import sys
 from argparse import Namespace
 from collections import OrderedDict
+from enum import Enum
 from os.path import exists
 from pathlib import Path
 from typing import Final
@@ -163,6 +164,7 @@ class Suit:
         Dynamic change suits when run
         :return: bool result of changing suit
         """
+        #TODO
         pass
 
     @staticmethod
@@ -251,6 +253,7 @@ class App:
         """
         # containers
         questions_to_learn: Final[list[str | list[str]]] = list()  # to do learn
+        tasks_data: Final[dict[str, str]] = dict()
         all_file_data: Final[dict[str, str]] = dict()  # available paths and variables
 
         # time functionality:
@@ -262,6 +265,7 @@ class App:
         main_file_name: Final[str] = '__main__'
         all_file_name: Final[str] = '__all__'
         global_dir_name: Final[str] = '__global__'
+        tasks_dir_name: Final[str] = '__tasks__'
         app_version: Final[str] = '2.4.1'
 
     class Global_functions:
@@ -304,12 +308,19 @@ class App:
         """
         Utility flags
         """
+
+        class App_mode(str, Enum):
+            GRAPHICAL = 'graphical'
+            CONSOLE = 'console'
+            WEB_SERV = 'web'
+            DEV = 'dev'
+
         is_random_run: bool = True  # sequential order if false and random otherwise
         verbose_mode: bool = True  # output suit name when run
         debug_mode: bool = False  # for debug msgs
         high_prior: bool = False  # run only high priority questions
         is_ai_generating_answer: bool = False  # generate every answer with AI
-        is_graphical_mode: bool  # False for console mode and True for graphical user interface
+        app_mode: App_mode  # False for console mode and True for graphical user interface
 
         def turn_on_flags(self) -> None:
             self.is_random_run = ns['random_run']
@@ -328,7 +339,7 @@ class App:
         def __init__(self):
             suits = App.get_suits()
             self._suits = suits if suits is not None else OrderedDict()
-            if App.Flags.is_graphical_mode:
+            if App.Flags.app_mode == App.Flags.App_mode.GRAPHICAL:
                 self.outer_app = QtWidgets.QApplication(args)
                 self.main_window: Final[UI] = UI()
                 self.main_window.setup_slots()
@@ -384,9 +395,9 @@ class App:
                 match args[1]:
                     case 'new-suit' | 'ns':
                         Format.prYellow('Enter file name:')
-                        user_file_name: str = enter_data_str()
-                        with open(user_file_name, 'w+') as new_file:
-                            new_file.write(f'#{user_file_name} suit: \n')  # add suit name
+                        App.str_input_data = enter_data_str()
+                        with open(App.str_input_data, 'w+') as new_file:
+                            new_file.write(f'#{App.str_input_data} suit: \n')  # add suit name
                             new_file.write('#<Question text>|<Optional answer>\n')  # add instruction
                         exit(0)  # exit after creation
 
@@ -409,12 +420,12 @@ class App:
 
                     while True:
                         Format.prYellow('Choose suit to run by its number or type 666 to exit')
-                        user_choice = enter_data_int()
-                        if user_choice == 666:
+                        App.int_input_data = enter_data_int()
+                        if App.int_input_data == 666:
                             Format.prYellow('Exit from utility')
                             exit(0)
-                        if user_choice in range(len(self._suits)):
-                            active_suit = self._suits[suits_key[user_choice]]
+                        if App.int_input_data in range(len(self._suits)):
+                            active_suit = self._suits[suits_key[App.int_input_data]]
                             break
                         else:
                             Format.prRed('Try again')
@@ -466,8 +477,8 @@ class App:
                     Format.prYellow('Enter "save"   (s) to save question for later learning,')
                     Format.prYellow('Enter "reload" (r) to reload question suit,')
                     Format.prYellow('Enter "exit"   (e) to exit program.')
-                    choice: str = enter_data_str()
-                    match choice:
+                    App.str_input_data = enter_data_str()
+                    match App.str_input_data:
                         case 'pass' | 'p':
                             question_counter += 1
                             if all_questions_count == question_counter:
@@ -509,8 +520,8 @@ class App:
                                 Format.prYellow(f'Solved only {question_counter}/{all_questions_count}, session is not ended')
                                 Format.prYellow('Do you want to save current session for later continue? (y/n)')
                                 while True:
-                                    user_choice: str = enter_data_str()
-                                    match user_choice:
+                                    App.str_input_data = enter_data_str()
+                                    match App.str_input_data:
                                         case 'y' | 'yes':
                                             Format.prGreen('Saving file')
                                             with open(f'savefile-{datetime.date.today()}.txt', 'w+') as save_file:
@@ -540,6 +551,41 @@ class App:
             Format.prYellow(f'learning time - {(finish_time - App.Global_statement.start_time)}')
             active_suit.later_todo()
 
+    class Task_runner:
+        def __init__(self):
+            pass
+
+        def run_tasks(self):
+            tasks_count = len(App.Global_statement.tasks_data)
+            if tasks_count > 1:
+                Format.prYellow('Detected several tasks suits, choose one:')
+                for num, t_suit in enumerate(App.Global_statement.tasks_data):
+                    print(f'{num}: {t_suit}')
+
+                App.int_input_data = enter_data_int()
+                if App.int_input_data in tasks_count:
+                    pass
+                    # active_task_suit = App.Global_statement.tasks_data[]
+                    # TODO continue
+            else:
+                pass
+
+        @staticmethod
+        def check_for_tasks():
+            """
+            Check for directory with practical tasks in App
+            :return: None
+            """
+            path_to_tasks_dir = start_path + os.sep + App.Global_statement.tasks_dir_name
+            if exists(path_to_tasks_dir):
+                for f_name in os.listdir(path_to_tasks_dir):
+                    App.Global_statement.tasks_data[f_name] = path_to_tasks_dir + os.sep + f_name
+            else:
+                Format.prRed('No tasks directory found')
+
+    int_input_data: int
+    str_input_data: str
+
     def __init__(self, namespace: Namespace = None):
         try:
             # create app entities:
@@ -547,6 +593,7 @@ class App:
             self.all_file_data: dict[str, str] = dict()
             # self.data_driver: Data_driver | None = None
             self.statistic = App.Statistics()
+            self.task_runner = App.Task_runner()
             self.question_runner = App.Question_runner()
         except Exception as e:
             handle_critical_error(f'Failed to initialize app with error {e}')
@@ -610,15 +657,55 @@ class App:
             self.check_for_global()
 
             clear_screen()
-            if not App.Flags.is_graphical_mode:
-                self.question_runner.run_question_runner_console()
+            if App.Flags.app_mode == App.Flags.App_mode.CONSOLE:
+                Format.prYellow('Choose what to run:')
+                print('1. Questions (Theoretical)')
+                print('2. Tasks (Practical)')
+                App.int_input_data = enter_data_int()
+                match App.int_input_data:
+                    case 1:
+                        self.question_runner.run_question_runner_console()
+                    case 2:
+                        App.Task_runner.check_for_tasks()
+                        self.task_runner.run_tasks()
+                    case _:
+                        raise Exception(f'Unknown mode entered: {App.int_input_data}')
+            elif App.Flags.app_mode == App.Flags.App_mode.WEB_SERV:
+                from Web_module import web_server
+
+                # run uvicorn web server to connect with mobile app
+                print(f'Documentation: {web_server.docs_url}')
+                subprocess.run("uvicorn Web_module:web_server --reload --host 0.0.0.0 --port 8000", shell=True, capture_output=False, text=True)
+
+            elif App.Flags.app_mode == App.Flags.App_mode.DEV:
+                Format.prYellow('Choose app action:')
+                print('1. Create suit')
+                print('2. Append new question to suit')
+                App.int_input_data = enter_data_int()
+
+                match App.int_input_data:
+                    case 1:
+                        Format.prYellow('Enter suit name:')
+                        App.str_input_data = enter_data_str()
+                        new_suit_path = start_path + os.sep + App.str_input_data
+
+                        os.mkdir(new_suit_path)
+                        Format.prYellow('Created new suit directory')
+                        with open(App.str_input_data + os.sep + App.Global_statement.main_file_name, 'w+'):
+                            Format.prYellow('Created main file for new suit')
+                    case 2:
+                        # TODo first choose suit
+                        Format.prYellow('Enter new question')
+                        App.str_input_data = enter_data_str()
+                    case _:
+                        Format.prRed('Wrong option')
             else:
                 self.question_runner.run_question_runner_graphical()
         except Exception as e:
             handle_critical_error(f'Failed to start app with error - {e}')
 
     def exit_from_app(self):
-        if App.Flags.is_graphical_mode:
+        if App.Flags.app_mode == App.Flags.App_mode.GRAPHICAL:
             sys.exit(self.question_runner.outer_app.exec())
         self.statistic.print_statistics()
 
@@ -743,33 +830,36 @@ if __name__ == '__main__':
 
     Format.prYellow('Choose app mode:')
     print('1. Web server (for mobile app transfer data only)')
-    print('2. Usual mode (question runner in console)')
-    print('3. Graphical mode (question runner in graphical app)')
-    user_choice = enter_data_int()
+    print('2. Usual mode (question or task runner in console)')
+    print('3. Graphical mode (question or task runner in graphical app)')
+    print('4. Dev mode')
+    App.int_input_data = enter_data_int()
 
-    if user_choice == 1:
-        from Web_module import web_server
+    args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
+    args: Final[list[str]] = sys.argv if args_length > 1 else []
 
-        # run uvicorn web server to connect with mobile app
-        print(f'Documentation: {web_server.docs_url}')
-        subprocess.run("uvicorn Web_module:web_server --reload --host 0.0.0.0 --port 8000", shell=True, capture_output=False, text=True)
+    parser = argparse.ArgumentParser('Learn-help', description='App for learning')
+    parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False)
+    parser.add_argument('-v', '--verbose', action='store', help='More details in messages', required=False)
+    parser.add_argument('-d', '--debug', action='store', help='Debug messages', required=False)
+    parser.add_argument('-hp', '--high-prior', action='store', help='Run only high priority questions', required=False)
+    parser.add_argument('-ai', '--is-ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False)
+
+    ns = parser.parse_args(args)
+
+    if App.int_input_data == 1:
+        App.Flags.app_mode = App.Flags.App_mode.WEB_SERV
+
+    elif App.int_input_data == 2 or App.int_input_data == 3:
+        App.Flags.app_mode = App.Flags.App_mode.CONSOLE if App.int_input_data == 2 else App.Flags.App_mode.GRAPHICAL
+
+    elif App.int_input_data == 4:
+        App.Flags.app_mode = App.Flags.App_mode.DEV
 
     else:
-        App.Flags.is_graphical_mode = False if user_choice == 2 else True
+        Format.prRed('Wrong option selected')
+        exit(0)
 
-        args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
-        args: Final[list[str]] = sys.argv if args_length > 1 else []
-
-        parser = argparse.ArgumentParser('Learn-help', description='App for learning')
-        parser.add_argument('-ns', '--new-suit', action='store', help='Create new test suit with name', required=False)
-        parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False)
-        parser.add_argument('-v', '--verbose', action='store', help='More details in messages', required=False)
-        parser.add_argument('-d', '--debug', action='store', help='Debug messages', required=False)
-        parser.add_argument('-hp', '--high-prior', action='store', help='Run only high priority questions', required=False)
-        parser.add_argument('-ai', '--is-ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False)
-
-        ns = parser.parse_args(args)
-
-        app: Final[App] = App(ns)
-        app.start_app()
-        app.exit_from_app()
+    app: Final[App] = App(ns)
+    app.start_app()
+    app.exit_from_app()
