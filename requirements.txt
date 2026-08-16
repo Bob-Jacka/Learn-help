@@ -62,3 +62,6 @@ uvloop==0.22.1
 watchfiles==1.2.0
 websockets==17.0.1
 yadisk==3.4.1
+
+device_lib
+common-py-lib
