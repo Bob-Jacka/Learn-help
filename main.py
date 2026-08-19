@@ -38,12 +38,20 @@ os.environ['TERM'] = 'xterm-256color'
 start_path: Final[str] = Path().parent.absolute().as_posix()
 
 
+class Priority(str, Enum):
+    LOW = 'low'
+    MEDIUM = 'medium'
+    HIGH = 'high'
+    NO = 'NO'  # no priority is specified
+
+
 class Question(ABC):
     """
     Just marker class for questions
     """
     answer: str | None
     question: str
+    priority: Priority
 
     def __len__(self):
         return 1
@@ -53,6 +61,8 @@ class Question(ABC):
             return self.question
         elif prop == 'answer':
             return self.answer
+        elif prop == 'priority':
+            return self.priority
         else:
             raise Exception(f'Unknown property: {prop}')
 
@@ -63,6 +73,7 @@ class Question(ABC):
 @dataclasses.dataclass(init=True, frozen=True)
 class Simple_question(Question):
     question: str
+    priority: Priority
     answer: str | None
 
 
@@ -79,6 +90,7 @@ class Question_with_variants(Question):
     """
     answer: str | None
     question: str
+    priority: Priority
     variants: dict[int, str]
 
     def __repr__(self):
@@ -90,6 +102,7 @@ class Question_with_ai_check(Question):
     """
     User answers and AI check this answer
     """
+    priority: Priority
     question: str
 
     def __getitem__(self, prop):
@@ -113,6 +126,7 @@ class Question_with_timer(Question):
     Small time to answer question
     """
     question: str
+    priority: Priority
     answer: str | None
     time_to_wait: Final[int] = 10  # how many seconds to wait for answer
 
@@ -126,6 +140,7 @@ class Task_with_writing(Question):
     Give user a task and wait him to answer, then show correct answer
     """
     question: str
+    priority: Priority
     answer: str | None
 
 
@@ -135,7 +150,7 @@ class Suit:
     """
     start_suit_path: str
     suit_files: list[str]  # list with suit files names
-    all_suit_questions: list[str | Question]
+    all_suit_questions: list[Question]
 
     def __init__(self, suit_start):
         self.start_suit_path = suit_start
@@ -194,11 +209,6 @@ class Suit:
         # TODO
         pass
 
-    @staticmethod
-    def get_suit_name(question_line: list) -> str:
-        # TODO cut path to suit
-        return question_line[-1].removeprefix(App.Syntax_rules.suit_name_symbol)
-
     def get_questions(self):
         """
         Get questions from file and randomize them
@@ -230,7 +240,8 @@ class Suit:
 
                 # comment branch:
                 if suit_line != '\n' and not suit_line.startswith(App.Syntax_rules.comment_symbol):  # comment symbol
-                    self.all_suit_questions.append(clear_string(suit_line))
+                    # single questions in __main__ file
+                    self.all_suit_questions.append(parse_question(clear_string(suit_line)))
 
             if len(self.all_suit_questions) > 0:
                 if App.Flags.is_random_run:
@@ -238,16 +249,16 @@ class Suit:
                     TextAnsiFormatter.prYellow('All questions are up to date and shuffled')
                 else:
                     TextAnsiFormatter.prYellow('Run in sequential mode')
-                    # TODO
-                    # TODO
             else:
-                if App.data_driver is None:
+                if app.data_driver is None:
                     TextAnsiFormatter.prRed('Cannot use Data driver, because driver is None')
-                    raise Exception('Learn file is empty, cannot execute')
+                    raise Exception('Learn file is empty, cannot execute, check __main__ file for imports')
                 else:
                     # TODO
                     TextAnsiFormatter.prGreen('Using Data driver to load questions')
-                    self.all_suit_questions = App.data_driver.load_questions_from_remote()
+                    self.all_suit_questions = app.data_driver.load_questions_from_remote()
+        except IndexError as e:
+            handle_critical_error(f'No available questions to run - {e}')
         except Exception as e:
             if App.Flags.debug_mode:
                 TextAnsiFormatter.prRed(f'Using start path - {self.start_suit_path}')
@@ -266,7 +277,6 @@ class App:
         local_import_directive: Final[str] = '.Import_local'
         function_directive: Final[str] = '$Func'
         comment_symbol: Final[str] = '#'
-        suit_name_symbol: Final[str] = '^'
 
         statistics_symbol: Final[str] = '#Statistics:'
 
@@ -279,7 +289,7 @@ class App:
         Some constants and global data in one class
         """
         # containers
-        questions_to_later_learn: Final[list[str | list[str]]] = list()  # to do learn
+        questions_to_later_learn: Final[list[str]] = list()  # to do learn
         all_file_data: Final[dict[str, str]] = dict()  # available paths and variables
 
         # time functionality:
@@ -291,7 +301,7 @@ class App:
         main_file_name: Final[str] = '__main__'
         all_file_name: Final[str] = '__all__'
         global_dir_name: Final[str] = '__global__'
-        app_version: Final[str] = '2.6.1'
+        app_version: Final[str] = '2.7.1'
 
     class Global_functions:
         class Function_id:
@@ -341,7 +351,7 @@ class App:
             DEV = 'dev'
 
         is_random_run: bool = True  # sequential order if false and random otherwise
-        verbose_mode: bool = False  # output suit name when run and other control hints
+        verbose_mode: bool = True  # output suit name when run and other control hints
         debug_mode: bool = False  # for debug msgs
         high_prior: bool = False  # run only high priority questions
         is_ai_generating_answer: bool = False  # generate every answer with AI
@@ -402,7 +412,6 @@ class App:
                 active_suit = list(self._suits.items())[0][1]  # if only one suit, just take first
 
             active_suit.get_questions()
-            all_questions_count: Final[int] = active_suit.get_question_count()  # how many questions to run
             question_counter: int = 0  # position of question in suit
             while True:
                 current_question: str | list[str] = active_suit.all_suit_questions[question_counter]  # str for old textAnsiFormatter
@@ -476,36 +485,22 @@ class App:
                 print('Run these files in suit:')  # print files that includes in suit
                 for num, suit_file in enumerate(self.active_suit.suit_files):
                     print(f'{num}: {suit_file}')
-            while True:
-                current_question: str | list[str] | Question = self.active_suit.all_suit_questions[question_counter]  # str for old textAnsiFormatter
 
-                # old new question method (with answer)
-                if not isinstance(current_question, Question) and current_question.__contains__("|"):
-                    current_question = current_question.split("|")
-                    current_question = list(filter(None, current_question))
+            while True:
+                current_question: Question = self.active_suit.all_suit_questions[question_counter]  # str for old textAnsiFormatter
 
                 if len(current_question) > 0:
                     print('\n')
-                    if isinstance(current_question, str):
-                        TextAnsiFormatter.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question.capitalize()}')
-                    elif isinstance(current_question, Question):
-                        TextAnsiFormatter.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question.question}')
-                    elif isinstance(current_question, list):
-                        TextAnsiFormatter.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question[0].capitalize()}')
+                    TextAnsiFormatter.prCyan(f'{question_counter + 1}/{all_questions_count}: "{current_question.question}"')
 
                     if App.Flags.verbose_mode:
-                        # print suit name:
-                        TextAnsiFormatter.prUnderline(f'Question suit: {Suit.get_suit_name(question_line=current_question)}')
-
                         # print other question data:
                         TextAnsiFormatter.prYellow('Enter "pass"   (p) to pass question,')
                         TextAnsiFormatter.prYellow('Enter "no"     (n) if you do not know answer,')
                         TextAnsiFormatter.prYellow('Enter "help"   (h) to view answer,')
-                        # TODO
                         if App.Flags.debug_mode:
                             TextAnsiFormatter.prUnderline('Enter "ans" (a) to add answer')  # to add answer
                             TextAnsiFormatter.prUnderline('Enter "add" (add) to add question to suit')
-                            # self._suits[Suit.get_suit_name(current_question)]
                         TextAnsiFormatter.prYellow('Enter "save"   (s) to save question for later learning,')
                         TextAnsiFormatter.prYellow('Enter "reload" (r) to reload question suit,')
                         TextAnsiFormatter.prYellow('Enter "exit"   (e) to exit program.')
@@ -520,21 +515,16 @@ class App:
 
                         case 'no' | 'n':
                             TextAnsiFormatter.prRed('Later check this question')
-                            App.Global_statement.questions_to_later_learn.append(current_question if isinstance(current_question, str | list) else current_question.question)
+                            App.Global_statement.questions_to_later_learn.append(current_question if isinstance(current_question, str) else current_question.question)
                             question_counter += 1
                             clear_screen()
                             continue
 
                         case 'help' | 'h':
                             if App.Flags.is_ai_generating_answer:
-                                TextAnsiFormatter.prGreen(f'Answer: {app.ai_gen.generate_answer(current_question)}')
+                                TextAnsiFormatter.prGreen(f'Answer: {app.ai_gen.generate_answer(current_question.answer)}')
                             else:
-                                if isinstance(current_question, list):
-                                    if len(current_question[1]) > 1 and not current_question[1].startswith(App.Syntax_rules.suit_name_symbol):  # bug fix, when question line with 2 or 3
-                                        TextAnsiFormatter.prGreen(f'Answer: {current_question[1].capitalize()}')
-                                    else:
-                                        TextAnsiFormatter.prRed('No answer available')
-                                elif isinstance(current_question, Question):
+                                if current_question.answer != '':
                                     TextAnsiFormatter.prGreen(f'Answer: {current_question.answer}')
                                 else:
                                     TextAnsiFormatter.prRed('No answer available')
@@ -542,7 +532,7 @@ class App:
                         case 'save' | 's':
                             TextAnsiFormatter.prYellow('Save question for later study')
                             if not current_question in App.Global_statement.questions_to_later_learn:
-                                App.Global_statement.questions_to_later_learn.append(current_question if isinstance(current_question, str | list) else current_question.question)
+                                App.Global_statement.questions_to_later_learn.append(current_question.question)
                             else:
                                 TextAnsiFormatter.prRed('Question already saved')
 
@@ -561,8 +551,8 @@ class App:
                                         case 'y' | 'yes':
                                             TextAnsiFormatter.prGreen('Saving file')
                                             with open(f'savefile-{datetime.date.today()}.txt', 'w+') as save_file:
-                                                for question_line in range(question_counter, all_questions_count):
-                                                    save_file.write(f'{self.active_suit.all_suit_questions[question_line]}\n')
+                                                for question_line in range(len(App.Global_statement.questions_to_later_learn)):
+                                                    save_file.write(f'{App.Global_statement.questions_to_later_learn[question_line]}\n')
                                             TextAnsiFormatter.prGreen('Save complete')
                                             break
 
@@ -595,10 +585,10 @@ class App:
             self.ai_gen = AI()
             self.all_file_data: dict[str, str] = dict()
             self.statistic = App.Statistics()
+            self.data_driver: IVirtDevice | None = None
             self.question_runner = App.Question_runner()
-            self.data_driver: IVirtDevice | None = Yandex_driver.create_yandex_virt_device(None)
         except Exception as e:
-            handle_critical_error(f'Failed to initialize app with error {e}')
+            handle_critical_error(f'Failed to initialize app with error: {e}')
 
     @staticmethod
     def check_for_global() -> None:
@@ -632,7 +622,6 @@ class App:
 
         for line in file_data:
             if line != '' and '=' in line:
-
                 # path path:
                 if line.startswith(App.Syntax_rules.path_prefix):
                     line = line.removeprefix(App.Syntax_rules.path_prefix)
@@ -752,15 +741,13 @@ def proceed_import_file(path_to_read: str | None, suit: Suit) -> None:
     if path_to_read is None:
         return
     if exists(path_to_read):
-        to_return: Final[list[str | Question]] = list()
+        to_return: Final[list[Question]] = list()
         with open(path_to_read, 'r') as import_file:
-            suit_name: Final[str] = import_file.name  # add suit name for useless details
+            # TODO for later use
+            # suit_name: Final[str] = import_file.name  # add suit name for useless details
 
             for line in import_file:
                 if line != '\n' and not line.startswith(App.Syntax_rules.comment_symbol):  # comments
-                    if App.Flags.verbose_mode:
-                        line += f'|{App.Syntax_rules.suit_name_symbol}{suit_name}'  # append additional data only in case of verbose flag
-
                     to_return.append(parse_question(clear_string(line)))
 
                 # experimental feature, nested suits
@@ -775,40 +762,39 @@ def proceed_import_file(path_to_read: str | None, suit: Suit) -> None:
         TextAnsiFormatter.prRed(f'Path to import file is not exists: "{path_to_read}"')
 
 
-def parse_question(quest_line: str) -> Question | str:
+def parse_question(quest_line: str) -> Question:
     """
     Very, very new type of questions
     :param quest_line: line with question directive or old question line
     :return: Question object or old format question
     """
-    if not quest_line.startswith('Question'):
-        # old format
-        return quest_line
+    params = quest_line.removeprefix('Question(').removesuffix(')').split(',')
+    params_dict = dict()
+    for param in params:
+        splitted = param.split('=')
+        params_dict[clear_string(splitted[0])] = clear_string(splitted[1])
+        if App.Flags.high_prior and params_dict['priority'] != Priority.HIGH:  # apply high priority strategy
+            continue
+
+    if 'type' in params_dict.keys():
+        question_type = params_dict['type']
+        del params_dict['type']  # delete unnecessary parameter
+        match question_type:
+            case 'Simple':
+                return Simple_question(**params_dict)
+            # TODO
+            # case 'Variants':
+            #     return Question_with_variants(**params_dict)
+            case 'Timer':
+                return Question_with_timer(**params_dict)
+            case 'Writing':
+                return Task_with_writing(**params_dict)
+            case 'AI_check':
+                return Question_with_ai_check(**params_dict)
+            case _:
+                raise Exception(f'Wrong question type: {question_type}')
     else:
-        params = quest_line.removeprefix('Question(').removesuffix(')').split(',')
-        params_dict = dict()
-        for param in params:
-            splitted = param.split('=')
-            params_dict[clear_string(splitted[0])] = clear_string(splitted[1])
-        if 'type' in params_dict.keys():
-            question_type = params_dict['type']
-            del params_dict['type']
-            match question_type:
-                case 'Simple':
-                    return Simple_question(**params_dict)
-                # TODO
-                # case 'Variants':
-                #     return Question_with_variants(**params_dict)
-                case 'Timer':
-                    return Question_with_timer(**params_dict)
-                case 'Writing':
-                    return Task_with_writing(**params_dict)
-                case 'AI_check':
-                    return Question_with_ai_check(**params_dict)
-                case _:
-                    raise Exception(f'Wrong question type: {question_type}')
-        else:
-            raise Exception(f'Unknown question type: {params}')
+        raise Exception(f'Unknown question type: {params}')
 
 
 def signal_handler(sig, frame):
@@ -855,13 +841,6 @@ def handle_critical_error(msg: str):
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
-    TextAnsiFormatter.prYellow('Choose app mode:')
-    print('1. Web server (for mobile app transfer data only)')
-    print('2. Usual mode (question runner in console)')
-    print('3. Graphical mode (question runner in graphical app)')
-    print('4. Dev mode')
-    App.int_input_data = int_input_from_user()
-
     args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
     args: Final[list[str]] = sys.argv if args_length > 1 else []
 
@@ -874,6 +853,13 @@ if __name__ == '__main__':
 
     ns = parser.parse_args(args)
 
+    TextAnsiFormatter.prYellow('Choose app mode:')
+    print('1. Web server (for mobile app transfer data only)')
+    print('2. Usual mode (question runner in console)')
+    print('3. Graphical mode (question runner in graphical app)')
+    print('4. Dev mode')
+    App.int_input_data = int_input_from_user()
+
     if App.int_input_data == 1:
         App.Flags.app_mode = App.Flags.App_mode.WEB_SERV
 
@@ -884,7 +870,7 @@ if __name__ == '__main__':
         App.Flags.app_mode = App.Flags.App_mode.DEV
 
     else:
-        TextAnsiFormatter.prRed('Wrong option selected')
+        TextAnsiFormatter.prRed(f'Wrong option selected: {App.int_input_data}')
         exit(0)
 
     app: Final[App] = App(ns)
