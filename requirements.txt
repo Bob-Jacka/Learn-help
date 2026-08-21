@@ -65,3 +65,4 @@ yadisk==3.4.1
 
 device_lib
 common-py-lib
+numba
