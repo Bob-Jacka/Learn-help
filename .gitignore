@@ -5,5 +5,5 @@ todo-learn-*.txt
 learn-*.txt
 *.txt
 __global__
-__tasks__
 __main__
+target

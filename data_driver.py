@@ -13,3 +13,6 @@ class Data_driver:
 
     def start_driver(self):
         self.data_driver = Yandex_driver.create_yandex_virt_device(None)
+
+    def load_questions_from_remote(self):
+        pass

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Final
 
 from data_driver import Data_driver
-from numba import prange
+from transpiler import Transpiler
 
 try:
     from common_py_lib.io.Input import safe_int_input_from_user, safe_str_input_from_user
@@ -29,18 +29,26 @@ try:
     from PyQt6.QtWidgets import QMessageBox, QDialog
 
     from AI import AI
-    from UI import UI, Choose_suit_dialog
+    from UI import Ui_Form, Choose_suit_dialog
     from device_lib.devices.virtual import IVirtDevice
     from common_py_lib.entities.Formatter import TextAnsiFormatter
     from common_py_lib.actions.Input import *
 except ModuleNotFoundError as e:
     print(f'No available modules found: {e}')
 
+try:
+    import Learn_help
+except Exception as e:
+    print(f'Error in import Rust based functions: {e}')
+
 os.environ['TERM'] = 'xterm-256color'
-start_path: Final[str] = Path().parent.absolute().as_posix()
+start_path: str = Path().parent.absolute().as_posix()
 
 
 class Priority(str, Enum):
+    """
+    Question priority
+    """
     LOW = 'low'
     MEDIUM = 'medium'
     HIGH = 'high'
@@ -51,7 +59,7 @@ class IQuestion(ABC):
     """
     Just marker class for questions
     """
-    answer: str | None
+    answer: str
     question: str
     priority: Priority
 
@@ -69,14 +77,14 @@ class IQuestion(ABC):
             raise Exception(f'Unknown property: {prop}')
 
     def __repr__(self):
-        return f'Question: {self.question}, Answer: {self.answer}, priority: {self.priority}'
+        return f'Question: {self.question}, Answer: {self.answer}, Priority: {self.priority}'
 
 
 @dataclasses.dataclass(init=True, frozen=True)
 class Simple_question(IQuestion):
     question: str
     priority: Priority
-    answer: str | None
+    answer: str
 
 
 @dataclasses.dataclass(init=True, frozen=True)
@@ -90,13 +98,13 @@ class Question_with_variants(IQuestion):
 
     or maybe more options
     """
-    answer: str | None
+    answer: str
     question: str
     priority: Priority
     variants: dict[int, str]
 
     def __repr__(self):
-        return f'Question: {self.question}, Answer: {self.answer}, Variants: {self.variants}'
+        return f'Question: {self.question}, Answer: {self.answer}, Variants: {self.variants}, Priority: {self.priority}'
 
 
 @dataclasses.dataclass(init=True, frozen=True)
@@ -119,7 +127,7 @@ class Question_with_ai_check(IQuestion):
         pass
 
     def __repr__(self):
-        return f'Question: {self.question}, Answer: AI generating'
+        return f'Question: {self.question}, Answer: AI generating, Priority: {self.priority}'
 
 
 @dataclasses.dataclass(init=True)
@@ -133,7 +141,7 @@ class Question_with_timer(IQuestion):
     time_to_wait: Final[int] = 10  # how many seconds to wait for answer
 
     def __repr__(self):
-        return f'Question: {self.question}, Answer: {self.answer}, Time: {self.time_to_wait}'
+        return f'Question: {self.question}, Answer: {self.answer}, Time: {self.time_to_wait}, Priority: {self.priority}'
 
 
 @dataclasses.dataclass(init=True, frozen=True)
@@ -382,9 +390,8 @@ class App:
             self._suits = suits if suits is not None else OrderedDict()
             if App.Flags.app_mode == App.Flags.App_mode.GRAPHICAL:
                 self.outer_app = QtWidgets.QApplication(args)
-                self.main_window: Final[UI] = UI()
+                self.main_window: Final[Ui_Form] = Ui_Form()
                 self.main_window.setup_slots()
-                self.main_window.show()
 
         def run_question_runner_graphical(self):
             """
@@ -411,7 +418,6 @@ class App:
                         chosen_suit = ""
 
                     active_suit = self._suits[chosen_suit]
-
 
             elif len(self._suits) == 1:
                 active_suit = list(self._suits.items())[0][1]  # if only one suit, just take first
@@ -459,7 +465,7 @@ class App:
                         if App.int_input_data == 666:
                             TextAnsiFormatter.prYellow('Exit from utility')
                             exit(0)
-                        if App.int_input_data in prange(len(self._suits)):
+                        if App.int_input_data in range(len(self._suits)):
                             active_suit = self._suits[suits_key[App.int_input_data]]
                             break
                         else:
@@ -493,7 +499,7 @@ class App:
 
             while True:
                 current_question: IQuestion = self.active_suit.all_suit_questions[question_counter]  # str for old textAnsiFormatter
-                TextAnsiFormatter.prCyan(f'\n{question_counter + 1}/{all_questions_count}: "{current_question.question}"')
+                TextAnsiFormatter.prCyan(f'\n{question_counter + 1}/{all_questions_count}: "{current_question.question.capitalize()}"')
 
                 if App.Flags.verbose_mode:
                     # print other question data:
@@ -771,7 +777,7 @@ def parse_question(quest_line: str) -> IQuestion:
     :return: Question object or old format question
     """
     params = quest_line.removeprefix('Question(').removesuffix(')').split(',')
-    params_dict = dict()
+    params_dict: dict[str, str] = dict()
     try:
         try:
             for param in params:
@@ -782,7 +788,7 @@ def parse_question(quest_line: str) -> IQuestion:
 
         if 'type' in params_dict.keys():
             question_type = params_dict['type']
-            del params_dict['type']  # delete unnecessary parameter
+            del params_dict['type']  # delete unnecessary parameter from dict
             try:
                 match question_type:
                     case 'Simple':
@@ -796,13 +802,15 @@ def parse_question(quest_line: str) -> IQuestion:
                     case 'AI_check':
                         return Question_with_ai_check(**params_dict)
                     case _:
-                        raise Exception(f'Wrong question type: {question_type}')
+                        raise Exception(f'Wrong question type')
             except Exception as e:
                 print(f'Failed to create question object: {e}')
         else:
             raise Exception(f'Unknown question type: {params}')
-    except Exception as e:
-        print(f'Failed to parse question due to error: {e}')
+    except Exception:
+        print('Using fallback init with Simple class by Transpiler:')
+        fallback_question = Transpiler.get_data_from_question(Transpiler.parse_one_question_static(quest_line))
+        return Simple_question(question=fallback_question['question'], priority=fallback_question['priority'], answer=fallback_question['answer'])
 
 
 def signal_handler(sig, frame):
@@ -830,7 +838,7 @@ def fisher_yates_shuffle(arr) -> list:
     :param arr: sequence with elements
     :return: randomized sequence
     """
-    for i in prange(len(arr) - 1, 0, -1):
+    for i in range(len(arr) - 1, 0, -1):
         j = random.randint(0, i)
         arr[i], arr[j] = arr[j], arr[i]
     return list(arr)
@@ -850,7 +858,11 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
     args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
-    args: Final[list[str]] = sys.argv if args_length > 1 else []
+    args: Final[list[str]] = sys.argv if args_length >= 1 else []
+
+    if len(args) == 1:
+        start_path = os.path.abspath(sys.argv[1])
+        print(f'Run on path: {start_path}')
 
     parser = argparse.ArgumentParser('Learn-help', description='App for learning')
     parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False)
@@ -858,7 +870,6 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--debug', action='store', help='Debug messages', required=False)
     parser.add_argument('-hp', '--high-prior', action='store', help='Run only high priority questions', required=False)
     parser.add_argument('-ai', '--is-ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False)
-
     ns = parser.parse_args(args)
 
     TextAnsiFormatter.prYellow('Choose app mode:')
@@ -866,20 +877,24 @@ if __name__ == '__main__':
     print('2. Usual mode (question runner in console)')
     print('3. Graphical mode (add questions to app)')
     print('4. Dev mode')
-    App.int_input_data = int_input_from_user()
+    while True:
+        App.int_input_data = int_input_from_user()
 
-    if App.int_input_data == 1:
-        App.Flags.app_mode = App.Flags.App_mode.WEB_SERV
+        if App.int_input_data == 1:
+            App.Flags.app_mode = App.Flags.App_mode.WEB_SERV
+            break
 
-    elif App.int_input_data == 2 or App.int_input_data == 3:
-        App.Flags.app_mode = App.Flags.App_mode.CONSOLE if App.int_input_data == 2 else App.Flags.App_mode.GRAPHICAL
+        elif App.int_input_data == 2 or App.int_input_data == 3:
+            App.Flags.app_mode = App.Flags.App_mode.CONSOLE if App.int_input_data == 2 else App.Flags.App_mode.GRAPHICAL
+            break
 
-    elif App.int_input_data == 4:
-        App.Flags.app_mode = App.Flags.App_mode.DEV
+        elif App.int_input_data == 4:
+            App.Flags.app_mode = App.Flags.App_mode.DEV
+            break
 
-    else:
-        TextAnsiFormatter.prRed(f'Wrong option selected: {App.int_input_data}')
-        exit(0)
+        else:
+            TextAnsiFormatter.prRed(f'Wrong option selected: {App.int_input_data}')
+            continue
 
     app: Final[App] = App(ns)
     app.start_app()

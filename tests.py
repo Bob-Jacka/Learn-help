@@ -22,3 +22,7 @@ class Free_functions(unittest.TestCase):
 
     def test_should_not_parse_questions(self):
         parse_question()
+
+
+class Transpiler_tests(unittest.TestCase):
+    pass
