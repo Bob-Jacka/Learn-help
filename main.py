@@ -4,32 +4,30 @@ Learn new by repeating boring questions again and again.
 """
 
 import argparse
-import dataclasses
 import datetime
 import os.path
 import random
 import signal
 import subprocess
 import sys
-from abc import ABC
-from argparse import Namespace
 from collections import OrderedDict
 from enum import Enum
 from os.path import exists
 from pathlib import Path
 from typing import Final
 
+from PyQt6 import QtWidgets
+from PyQt6.QtWidgets import QMessageBox, QDialog
+from learn_help import fisher_yates
+
+from AI import AI
+from Norator import Norator
+from UI import Ui_Form, Choose_suit_dialog
 from data_driver import Data_driver
 from transpiler import Transpiler
 
 try:
     from common_py_lib.io.Input import safe_int_input_from_user, safe_str_input_from_user
-
-    from PyQt6 import QtWidgets
-    from PyQt6.QtWidgets import QMessageBox, QDialog
-
-    from AI import AI
-    from UI import Ui_Form, Choose_suit_dialog
     from device_lib.devices.virtual import IVirtDevice
     from common_py_lib.entities.Formatter import TextAnsiFormatter
     from common_py_lib.actions.Input import *
@@ -37,121 +35,17 @@ except ModuleNotFoundError as e:
     print(f'No available modules found: {e}')
 
 try:
-    import Learn_help
+    import learn_help
 except Exception as e:
     print(f'Error in import Rust based functions: {e}')
 
 os.environ['TERM'] = 'xterm-256color'
 start_path: str = Path().parent.absolute().as_posix()
 
-
-class Priority(str, Enum):
-    """
-    Question priority
-    """
-    LOW = 'low'
-    MEDIUM = 'medium'
-    HIGH = 'high'
-    NO = 'NO'  # no priority is specified
-
-
-class IQuestion(ABC):
-    """
-    Just marker class for questions
-    """
-    answer: str
-    question: str
-    priority: Priority
-
-    def __len__(self):
-        return 1
-
-    def __getitem__(self, prop):
-        if prop == "question":
-            return self.question
-        elif prop == 'answer':
-            return self.answer
-        elif prop == 'priority':
-            return self.priority
-        else:
-            raise Exception(f'Unknown property: {prop}')
-
-    def __repr__(self):
-        return f'Question: {self.question}, Answer: {self.answer}, Priority: {self.priority}'
-
-
-@dataclasses.dataclass(init=True, frozen=True)
-class Simple_question(IQuestion):
-    question: str
-    priority: Priority
-    answer: str
-
-
-@dataclasses.dataclass(init=True, frozen=True)
-class Question_with_variants(IQuestion):
-    """
-    Question with several options,
-    example:
-    What came before
-    1. Egg,
-    2. Chicken
-
-    or maybe more options
-    """
-    answer: str
-    question: str
-    priority: Priority
-    variants: dict[int, str]
-
-    def __repr__(self):
-        return f'Question: {self.question}, Answer: {self.answer}, Variants: {self.variants}, Priority: {self.priority}'
-
-
-@dataclasses.dataclass(init=True, frozen=True)
-class Question_with_ai_check(IQuestion):
-    """
-    User answers and AI check this answer
-    """
-    priority: Priority
-    question: str
-
-    def __getitem__(self, prop):
-        if prop == "question":
-            return self.question
-        elif prop == 'answer':
-            return self.get_answer()
-        else:
-            raise Exception(f'Unknown property: {prop}')
-
-    def get_answer(self) -> str:
-        pass
-
-    def __repr__(self):
-        return f'Question: {self.question}, Answer: AI generating, Priority: {self.priority}'
-
-
-@dataclasses.dataclass(init=True)
-class Question_with_timer(IQuestion):
-    """
-    Small time to answer question
-    """
-    question: str
-    priority: Priority
-    answer: str | None
-    time_to_wait: Final[int] = 10  # how many seconds to wait for answer
-
-    def __repr__(self):
-        return f'Question: {self.question}, Answer: {self.answer}, Time: {self.time_to_wait}, Priority: {self.priority}'
-
-
-@dataclasses.dataclass(init=True, frozen=True)
-class Task_with_writing(IQuestion):
-    """
-    Give user a task and wait him to answer, then show correct answer
-    """
-    question: str
-    priority: Priority
-    answer: str | None
+IQuestion = learn_help.Simple_question | learn_help.QuestionWithTimer | learn_help.TaskWithWriting | learn_help.QuestionWithVariants | learn_help.QuestionWithAiCheck
+"""
+Interface type for rust based questions in python
+"""
 
 
 class Suit:
@@ -189,7 +83,7 @@ class Suit:
         file_handler = open(App.Global_statement.main_file_name, 'w+')
         main_file_data = file_handler.readlines()
         try:
-            stat_start = main_file_data.index(App.Syntax_rules.statistics_symbol)  # special commentary for statistics
+            pass  # special commentary for statistics
         except ValueError:
             TextAnsiFormatter.prRed('No statistics in this suit, create partition')
             file_handler.write('\n#Statistics:')
@@ -252,12 +146,12 @@ class Suit:
                     self.all_suit_questions.append(parse_question(clear_string(suit_line)))
 
             if len(self.all_suit_questions) > 0:
-                if App.Flags.high_prior:  # apply high priority strategy
-                    self.all_suit_questions = list(filter(lambda x: x['priority'] == Priority.HIGH, self.all_suit_questions))
-                    TextAnsiFormatter.prYellow('All questions are up to date, shuffled and only high priority')
+                if App.Flags.high_prior_strat:  # apply high priority strategy
+                    self.all_suit_questions = list(filter(lambda x: x['priority'] == 'high', self.all_suit_questions))
+                    TextAnsiFormatter.prYellow('All questions are up to date, only high priority')
 
                 elif App.Flags.is_random_run:
-                    self.all_suit_questions = fisher_yates_shuffle(self.all_suit_questions)  # randomize questions before run
+                    self.all_suit_questions = fisher_yates(self.all_suit_questions)  # randomize questions before run
                     TextAnsiFormatter.prYellow('All questions are up to date and shuffled')
 
                 else:
@@ -270,8 +164,8 @@ class Suit:
                     # TODO
                     TextAnsiFormatter.prGreen('Using Data driver to load questions')
                     self.all_suit_questions = app.data_driver.load_questions_from_remote()
-        except IndexError as e:
-            handle_critical_error(f'No available questions to run - {e}')
+        except IndexError:
+            handle_critical_error(f'No available questions to run')
         except Exception as e:
             if App.Flags.debug_mode:
                 TextAnsiFormatter.prRed(f'Using start path - {self.start_suit_path}')
@@ -290,8 +184,6 @@ class App:
         local_import_directive: Final[str] = '.Import_local'
         function_directive: Final[str] = '$Func'
         comment_symbol: Final[str] = '#'
-
-        statistics_symbol: Final[str] = '#Statistics:'
 
         # all file config:
         variable_prefix: Final[str] = 'Var'
@@ -314,7 +206,8 @@ class App:
         main_file_name: Final[str] = '__main__'
         all_file_name: Final[str] = '__all__'
         global_dir_name: Final[str] = '__global__'
-        app_version: Final[str] = '2.7.1'
+        statistics_file_name: Final[str] = '__stat__'  # file where stored statistics
+        app_version: Final[str] = '3.0.0'
 
     class Global_functions:
         class Function_id:
@@ -342,7 +235,7 @@ class App:
             """
             Use sub suit as a separate suit, ex. you have sub suit, called qa, which has cucumber questions
             and you want to use this sub suit as a suit, without main file.
-            ex. ex. $Func separe_suit(cucumber)
+            ex. ex. $Func separate_suit(cucumber)
             :param separate_suit_name: name of the sub suit
             :return: None
             """
@@ -350,6 +243,12 @@ class App:
 
         @staticmethod
         def ask_ai_about_which_suit_to_run(skills_for_job: list[str]):
+            """
+            Ask ai about what suit run.
+            For example, you have a job application and want to be ready, you ask ai about what suit you need to run.
+            :param skills_for_job: list of job skills
+            :return: None
+            """
             pass
 
     class Flags:
@@ -364,18 +263,23 @@ class App:
             DEV = 'dev'
 
         is_random_run: bool = True  # sequential order if false and random otherwise
-        verbose_mode: bool = False  # output suit name when run and other control hints
-        debug_mode: bool = False  # for debug msgs
-        high_prior: bool = not is_random_run  # run only high priority questions
-        is_ai_generating_answer: bool = False  # generate every answer with AI
-        app_mode: App_mode  # False for console mode and True for graphical user interface
+        is_norate_question: bool = False  # listen to question
+        high_prior_strat: bool = not is_random_run  # run only high priority questions
+        low_prior_strat: bool = False  # only low priority questions
 
-        def turn_on_flags(self) -> None:
-            self.is_random_run = ns['random_run']
-            self.verbose_mode = ns['verbose_mode']
-            self.debug_mode = ns['debug_mode']
-            self.high_prior = ns['high_prior']
-            self.is_ai_generating_answer = ns['ai']
+        verbose_mode: bool = False  # output suit name when run and other control hints
+        debug_mode: bool = False  # for debug msgs and other info
+        is_ai_generating_answer: bool = False  # generate every answer with AI
+        app_mode: App_mode  # interface modes
+
+        @staticmethod
+        def turn_on_flags() -> None:
+            App.Flags.is_random_run = ns['random_run']
+            App.Flags.verbose_mode = ns['verbose']
+            App.Flags.debug_mode = ns['debug']
+            App.Flags.is_norate_question = ns['norate']
+            App.Flags.high_prior_strat = ns['high_prior']
+            App.Flags.is_ai_generating_answer = ns['ai']
 
     class Statistics:
         def print_statistics(self):
@@ -499,7 +403,34 @@ class App:
 
             while True:
                 current_question: IQuestion = self.active_suit.all_suit_questions[question_counter]  # str for old textAnsiFormatter
-                TextAnsiFormatter.prCyan(f'\n{question_counter + 1}/{all_questions_count}: "{current_question.question.capitalize()}"')
+
+                if not app.Flags.is_norate_question:
+                    # Writing questions branch
+                    if isinstance(current_question, learn_help.TaskWithWriting):
+                        TextAnsiFormatter.prYellow('Writing task')
+                    TextAnsiFormatter.prCyan(f'\n{question_counter + 1}/{all_questions_count}: "{current_question.question.capitalize()}"')
+
+                    # Variants questions branch
+                    if isinstance(current_question, learn_help.QuestionWithVariants):
+                        TextAnsiFormatter.prYellow('Available variants:')
+                        for num, variant in current_question.variants.items():
+                            print(f'{num}: {variant}')
+                        App.str_input_data = safe_str_input_from_user()
+                        continue
+
+                    # AI check questions branch
+                    if isinstance(current_question, learn_help.QuestionWithAiCheck):
+                        TextAnsiFormatter.prYellow('AI check question, please wait')
+                        continue
+
+                    # Timer questions branch
+                    if isinstance(current_question, learn_help.QuestionWithTimer):
+                        TextAnsiFormatter.prYellow(f'Timer question, you have only {current_question.time_to_wait}')
+                        continue
+                else:
+                    TextAnsiFormatter.prPurple('Listen to question')
+                    TextAnsiFormatter.prYellow('Press "r" to repeat')
+                    app.norator.norate_string(current_question.question)
 
                 if App.Flags.verbose_mode:
                     # print other question data:
@@ -512,6 +443,8 @@ class App:
                     TextAnsiFormatter.prYellow('Enter "save"   (s) to save question for later learning,')
                     TextAnsiFormatter.prYellow('Enter "reload" (r) to reload question suit,')
                     TextAnsiFormatter.prYellow('Enter "exit"   (e) to exit program.')
+
+                # Simple questions branch
                 App.str_input_data = safe_str_input_from_user()
                 match App.str_input_data:
                     case 'pass' | 'p':
@@ -531,6 +464,8 @@ class App:
                     case 'help' | 'h':
                         if App.Flags.is_ai_generating_answer:
                             TextAnsiFormatter.prGreen(f'Answer: {app.ai_gen.generate_answer(current_question.answer)}')
+                        elif App.Flags.is_norate_question:
+                            app.norator.norate_string(current_question.answer)
                         else:
                             if current_question.answer != '':
                                 TextAnsiFormatter.prGreen(f'Answer: {current_question.answer}')
@@ -546,9 +481,11 @@ class App:
                             TextAnsiFormatter.prRed('Question already saved')
 
                     case 'reload' | 'r':
-                        TextAnsiFormatter.prYellow('Reload')
-                        # TODO
-                        pass
+                        if App.Flags.is_norate_question:
+                            app.norator.norate_string(current_question.question)
+                        else:
+                            TextAnsiFormatter.prYellow('Reload')
+                            # TODO
 
                     case 'exit' | 'e':
                         if question_counter < all_questions_count:
@@ -575,23 +512,32 @@ class App:
                             break
                         else:
                             break
+
                     case _:
+                        # some kind of kostyl for write questions type
+                        if isinstance(current_question, learn_help.TaskWithWriting):
+                            question_counter += 1
+                            continue
                         TextAnsiFormatter.prRed('Wrong value, try again')
                         continue
 
             finish_time = datetime.datetime.now()
-            TextAnsiFormatter.prYellow(f'learning time - {(finish_time - App.Global_statement.start_time)}')
+            TextAnsiFormatter.prYellow(f'learning time: {(finish_time - App.Global_statement.start_time)}')
             self.active_suit.later_todo()
 
     int_input_data: int
     str_input_data: str
 
-    def __init__(self, namespace: Namespace = None):
+    def __init__(self):
         try:
             # create app entities:
             self.ai_gen = AI()
-            self.all_file_data: dict[str, str] = dict()
             self.data_driver = Data_driver()
+
+            if App.Flags.is_norate_question:
+                self.norator = Norator(words_per_minute=100, volume=0.9, offline_mode=False)
+
+            self.all_file_data: dict[str, str] = dict()
             self.statistic = App.Statistics()
             self.question_runner = App.Question_runner()
         except Exception as e:
@@ -673,7 +619,11 @@ class App:
                 TextAnsiFormatter.prYellow('Choose app action:')
                 print('1. Create suit')
                 print('2. Append new question to suit')
-                print('3. Append new Globap path variable')
+                print('3. Append new Global path variable')
+                print('4. Count questions')
+                # remote
+                print('5. Save local question suits in remote (Data driver available)')
+                print('6. Load remote questions in local (Data driver available)')
                 App.int_input_data = safe_int_input_from_user()
                 match App.int_input_data:
                     case 1:
@@ -685,15 +635,36 @@ class App:
                         TextAnsiFormatter.prYellow('Created new suit directory')
                         with open(App.str_input_data + os.sep + App.Global_statement.main_file_name, 'w+'):
                             TextAnsiFormatter.prYellow('Created main file for new suit')
+
                     case 2:
                         # TODo first choose suit
                         TextAnsiFormatter.prYellow('Enter new question')
                         App.str_input_data = safe_str_input_from_user()
+
                     case 3:
                         TextAnsiFormatter.prYellow('Enter new global path variable name')
                         App.str_input_data = safe_str_input_from_user()
                         with open(start_path + os.sep + App.Global_statement.all_file_name, 'a') as all_file:
                             all_file.write(f'Path {App.str_input_data.split(os.sep)[-1]} = {App.str_input_data}')
+
+                    case 4:
+                        TextAnsiFormatter.prPurple('All questions count: ')
+                        counter: int = 0
+                        for _, suit in app.question_runner._suits.items():
+                            suit.get_questions()
+                            for _ in suit.all_suit_questions:
+                                counter += 1
+
+                        print(counter, end='')
+
+                    case 5:
+                        TextAnsiFormatter.prYellow('Activate saving questions in remote')
+                        app.data_driver.save_questions_in_remote()
+
+                    case 6:
+                        TextAnsiFormatter.prYellow('Activate loading questions from remote')
+                        app.data_driver.load_questions_from_remote()
+
                     case _:
                         TextAnsiFormatter.prRed('Wrong option')
 
@@ -706,6 +677,9 @@ class App:
     def exit_from_app(self):
         if App.Flags.app_mode == App.Flags.App_mode.GRAPHICAL:
             sys.exit(self.question_runner.outer_app.exec())
+
+        if exists(start_path + '/' + 'output.mp3'):
+            os.remove(start_path + '/' + 'output.mp3')
         self.statistic.print_statistics()
 
     @staticmethod
@@ -786,31 +760,35 @@ def parse_question(quest_line: str) -> IQuestion:
         except IndexError:
             print(f'Failed to parse: index is not exist')
 
+        parsed_question: IQuestion
+
         if 'type' in params_dict.keys():
             question_type = params_dict['type']
             del params_dict['type']  # delete unnecessary parameter from dict
             try:
                 match question_type:
                     case 'Simple':
-                        return Simple_question(**params_dict)
+                        parsed_question = learn_help.Simple_question(**params_dict)
                     case 'Variants':
-                        return Question_with_variants(**params_dict)
+                        parsed_question = learn_help.QuestionWithVariants(**params_dict)
                     case 'Timer':
-                        return Question_with_timer(**params_dict)
+                        parsed_question = learn_help.QuestionWithTimer(**params_dict)
                     case 'Writing':
-                        return Task_with_writing(**params_dict)
+                        parsed_question = learn_help.TaskWithWriting(**params_dict)
                     case 'AI_check':
-                        return Question_with_ai_check(**params_dict)
+                        parsed_question = learn_help.QuestionWithAiCheck(**params_dict)
                     case _:
                         raise Exception(f'Wrong question type')
             except Exception as e:
                 print(f'Failed to create question object: {e}')
         else:
             raise Exception(f'Unknown question type: {params}')
+
+        return parsed_question
     except Exception:
         print('Using fallback init with Simple class by Transpiler:')
         fallback_question = Transpiler.get_data_from_question(Transpiler.parse_one_question_static(quest_line))
-        return Simple_question(question=fallback_question['question'], priority=fallback_question['priority'], answer=fallback_question['answer'])
+        return learn_help.Simple_question(question=fallback_question['question'], priority=fallback_question['priority'], answer=fallback_question['answer'])
 
 
 def signal_handler(sig, frame):
@@ -821,27 +799,16 @@ def signal_handler(sig, frame):
     :return: None
     """
     print('\n')
-    App.Global_statement.finish_time = datetime.datetime.now()
-    TextAnsiFormatter.prYellow(f'learning time - {(App.Global_statement.finish_time - App.Global_statement.start_time)}')
-    TextAnsiFormatter.prYellow("Out program")
-    app.exit_from_app()
+    if app is not None:
+        App.Global_statement.finish_time = datetime.datetime.now()
+        TextAnsiFormatter.prYellow(f'learning time - {(App.Global_statement.finish_time - App.Global_statement.start_time)}')
+        TextAnsiFormatter.prYellow("Out program")
+        app.exit_from_app()
     exit(0)
 
 
 def clear_screen() -> None:
     subprocess.run('clear')
-
-
-def fisher_yates_shuffle(arr) -> list:
-    """
-    Random algorithm for random elements in list
-    :param arr: sequence with elements
-    :return: randomized sequence
-    """
-    for i in range(len(arr) - 1, 0, -1):
-        j = random.randint(0, i)
-        arr[i], arr[j] = arr[j], arr[i]
-    return list(arr)
 
 
 def clear_string(string: str) -> str:
@@ -865,20 +832,25 @@ if __name__ == '__main__':
         print(f'Run on path: {start_path}')
 
     parser = argparse.ArgumentParser('Learn-help', description='App for learning')
-    parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False)
-    parser.add_argument('-v', '--verbose', action='store', help='More details in messages', required=False)
-    parser.add_argument('-d', '--debug', action='store', help='Debug messages', required=False)
-    parser.add_argument('-hp', '--high-prior', action='store', help='Run only high priority questions', required=False)
-    parser.add_argument('-ai', '--is-ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False)
+    parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False, default=True)
+    parser.add_argument('-v', '--verbose', action='store', help='More details in messages and options', required=False, default=False)
+    parser.add_argument('-d', '--debug', action='store', help='Debug messages with other', required=False, default=False)
+    parser.add_argument('--high-prior', action='store', help='Run only high priority questions', required=False, default=False)
+    parser.add_argument('--norate', action='store', help='Norate questions instead of seeing text', required=False, default=False)
+    parser.add_argument('--ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False, default=False)
     ns = parser.parse_args(args)
+    ns = ns.__dict__  # convert namespace into dictionary
 
-    TextAnsiFormatter.prYellow('Choose app mode:')
+    TextAnsiFormatter.prPurple('Choose app mode:')
     print('1. Web server (for mobile app transfer data only)')
     print('2. Usual mode (question runner in console)')
     print('3. Graphical mode (add questions to app)')
     print('4. Dev mode')
     while True:
         App.int_input_data = int_input_from_user()
+
+        if App.int_input_data is None:  # bug fix, when kill program in choose option
+            exit(0)
 
         if App.int_input_data == 1:
             App.Flags.app_mode = App.Flags.App_mode.WEB_SERV
@@ -896,6 +868,7 @@ if __name__ == '__main__':
             TextAnsiFormatter.prRed(f'Wrong option selected: {App.int_input_data}')
             continue
 
-    app: Final[App] = App(ns)
+    App.Flags.turn_on_flags()
+    app: Final[App] = App()
     app.start_app()
     app.exit_from_app()

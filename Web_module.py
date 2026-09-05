@@ -2,23 +2,25 @@ from typing import OrderedDict
 
 from fastapi import FastAPI
 
-from main import App
+from main import App, Simple_question
 
 
 class Cache:
-    suits_data_cache: OrderedDict = None
+    suits_data_cache: OrderedDict | None = None
 
 
 web_server: FastAPI = FastAPI(description="Small web server for sending question data to mobile app")
 
 
-@web_server.get("/get_questions", description="Get questions data")
-def send_data():
-    print('Getting question suits to mobile')
+@web_server.get("/get_questions", description="Get simple questions data")
+def send_data_simple():
+    print('Getting simple question suits to mobile')
     if Cache.suits_data_cache is None:
         App.check_for_all()
         App.check_for_global()
         suits = App.get_suits(with_questions=True)
+        for suit_name, suit in suits.items():
+            suits[suit_name].all_suit_questions = list(filter(lambda x: x is Simple_question, suit.all_suit_questions))
         Cache.suits_data_cache = suits
         return suits
     return Cache.suits_data_cache
@@ -31,6 +33,8 @@ def send_data():
         App.check_for_all()
         App.check_for_global()
         suits = App.get_suits(with_questions=True)
+        for suit_name, suit in suits.items():
+            suits[suit_name].all_suit_questions = list(filter(lambda x: x is Simple_question, suit.all_suit_questions))
         Cache.suits_data_cache = suits
         if None in suits:
             return Cache.suits_data_cache

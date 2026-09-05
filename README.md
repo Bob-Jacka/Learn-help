@@ -18,8 +18,14 @@ pip install /path/to/ai_lib.whl
 ```
 
 And for the brave of optimization, this utility has some rust, to compile it, execute next commands:
+
 ```bash
 maturin develop
+```
+or for release
+
+```bash
+maturin build -r
 ```
 
 ## Question types:

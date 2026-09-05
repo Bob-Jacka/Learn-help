@@ -1,11 +1,11 @@
 [package]
-name = "Learn-help"
-version = "0.1.0"
+name = "learn-help"
+version = "0.3.0"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "Learn_help"
+name = "learn_help"
 crate-type = ["cdylib"]
 
 [dependencies]

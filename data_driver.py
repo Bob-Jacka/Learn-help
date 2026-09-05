@@ -15,4 +15,9 @@ class Data_driver:
         self.data_driver = Yandex_driver.create_yandex_virt_device(None)
 
     def load_questions_from_remote(self):
-        pass
+        if self.data_driver is not None:
+            pass
+
+    def save_questions_in_remote(self, ):
+        if self.data_driver is not None:
+            pass

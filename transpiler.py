@@ -86,6 +86,13 @@ class Transpiler:
             return f'Question(type={type}, question={line.strip().replace(',', '')}, answer=, priority=NO)'
 
     @staticmethod
+    def parse_list_questions_statis(question_lines: list[str]) -> list[str]:
+        to_return: list[str] = list()
+        for line in question_lines:
+            to_return.append(Transpiler.parse_one_question_static(line))
+        return to_return
+
+    @staticmethod
     def convert_to_old_format(question_object_line: str) -> str:
         """
         Convert modern new question string line representation to old format
