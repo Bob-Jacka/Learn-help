@@ -8,7 +8,7 @@ try:
     from gtts import gTTS
     import gtts
 except ModuleNotFoundError as e:
-    print(f'No available tts found: {e}')
+    print(f'No available dependency tts found: {e}')
 
 
 class Norator:
@@ -50,4 +50,4 @@ class Norator:
         else:  # if not offline mode
             self.engine = gTTS(text=text_to_norate, lang='ru')
             self.engine.save("output.mp3")
-            os.system('mpg123 output.mp3')
+            os.system('mpg123 output.mp3')  # only for Linux

@@ -109,7 +109,7 @@ class Transpiler:
         :param question_params: Question parameters
         :return: string representation
         """
-        return f'Question(type={question_params.get('type', 'Simple')}, answer={question_params.get('answer', '')}, priority={question_params.get('priority', '')})'
+        return f'Question(type={question_params.get('type', 'Simple')}, answer={question_params.get('answer', '')}, priority={question_params.get('priority', 'NO')})'
 
     @staticmethod
     def get_data_from_question(question_object_line: str) -> dict[str, str]:

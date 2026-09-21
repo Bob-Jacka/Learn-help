@@ -1,19 +1,24 @@
-from typing import OrderedDict
+from typing import OrderedDict, Any
 
 from fastapi import FastAPI
+from learn_help import Simple_question
 
-from main import App, Simple_question
+from main import App
 
 
 class Cache:
-    suits_data_cache: OrderedDict | None = None
+    suits_data_cache: OrderedDict[str, Any] | None = None
 
 
 web_server: FastAPI = FastAPI(description="Small web server for sending question data to mobile app")
 
 
-@web_server.get("/get_questions", description="Get simple questions data")
+@web_server.get("/get_questions", description="Get text questions data to norate on the phone")
 def send_data_simple():
+    """
+    Get all questions, transmit them to mobile and norate on the phone
+    :return: Dict with suits
+    """
     print('Getting simple question suits to mobile')
     if Cache.suits_data_cache is None:
         App.check_for_all()
@@ -28,6 +33,10 @@ def send_data_simple():
 
 @web_server.get("/get_questions/<str>", description="Get questions data of one suit")
 def send_data():
+    """
+    Send one question
+    :return: String object with question
+    """
     # TODO
     if Cache.suits_data_cache is None:
         App.check_for_all()
@@ -39,6 +48,11 @@ def send_data():
         if None in suits:
             return Cache.suits_data_cache
     return App.get_suits(with_questions=True)
+
+
+@web_server.get("/get_audio_questions", description="Get audio versions of questions data and transmit to mobile")
+def get_audio_questions():
+    pass
 
 
 @web_server.get("/status")

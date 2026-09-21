@@ -1,3 +1,7 @@
+"""
+Class for interacting with external resources like Yandex or Google drive
+"""
+
 try:
     from device_lib.devices.virtual.IVirtDevice import IVirtDevice
     from device_lib.devices.virtual.Yandex_driver import Yandex_driver
@@ -15,9 +19,16 @@ class Data_driver:
         self.data_driver = Yandex_driver.create_yandex_virt_device(None)
 
     def load_questions_from_remote(self):
+        """
+        Fully rewrite local questions
+        :return: None
+        """
         if self.data_driver is not None:
             pass
 
     def save_questions_in_remote(self, ):
         if self.data_driver is not None:
             pass
+
+    def update_remote(self):
+        pass

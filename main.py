@@ -6,7 +6,6 @@ Learn new by repeating boring questions again and again.
 import argparse
 import datetime
 import os.path
-import random
 import signal
 import subprocess
 import sys
@@ -18,13 +17,15 @@ from typing import Final
 
 from PyQt6 import QtWidgets
 from PyQt6.QtWidgets import QMessageBox, QDialog
-from learn_help import fisher_yates
 
 from AI import AI
+from Data_driver import Data_driver
+from Global_statements import Global_statement
 from Norator import Norator
+from Question_database import DB_interface
+from Syntax_rules import Syntax_rules
+from Transpiler import Transpiler
 from UI import Ui_Form, Choose_suit_dialog
-from data_driver import Data_driver
-from transpiler import Transpiler
 
 try:
     from common_py_lib.io.Input import safe_int_input_from_user, safe_str_input_from_user
@@ -32,17 +33,16 @@ try:
     from common_py_lib.entities.Formatter import TextAnsiFormatter
     from common_py_lib.actions.Input import *
 except ModuleNotFoundError as e:
-    print(f'No available modules found: {e}')
+    print(f'No available modules found: "{e}"')
 
 try:
     import learn_help
 except Exception as e:
-    print(f'Error in import Rust based functions: {e}')
+    print(f'Error in import Rust based functions: "{e}"')
 
-os.environ['TERM'] = 'xterm-256color'
 start_path: str = Path().parent.absolute().as_posix()
 
-IQuestion = learn_help.Simple_question | learn_help.QuestionWithTimer | learn_help.TaskWithWriting | learn_help.QuestionWithVariants | learn_help.QuestionWithAiCheck
+IQuestion = learn_help.Simple_question | learn_help.Question_with_timer | learn_help.Task_with_writing | learn_help.Question_with_variants | learn_help.Question_with_ai_check
 """
 Interface type for rust based questions in python
 """
@@ -71,7 +71,7 @@ class Suit:
         :return: bool result
         """
         if os.path.isdir(maybe_suit_name):
-            if App.Global_statement.main_file_name in os.listdir(maybe_suit_name):
+            if Global_statement.main_file_name in os.listdir(maybe_suit_name):
                 return True
         return False
 
@@ -80,7 +80,7 @@ class Suit:
             print(f'{num}: {suit}')
 
     def get_statistics(self) -> None:
-        file_handler = open(App.Global_statement.main_file_name, 'w+')
+        file_handler = open(Global_statement.main_file_name, 'w+')
         main_file_data = file_handler.readlines()
         try:
             pass  # special commentary for statistics
@@ -93,9 +93,9 @@ class Suit:
         Return to user questions that he needs to learn later
         :return: None
         """
-        if len(App.Global_statement.questions_to_later_learn) > 0:
-            with open(f'{App.Global_statement.later_learn_filename}-{datetime.datetime.now().date()}.txt', 'a+') as todo_file:
-                for todo_line in App.Global_statement.questions_to_later_learn:
+        if len(Global_statement.questions_to_later_learn) > 0:
+            with open(f'{Global_statement.later_learn_filename}-{datetime.datetime.now().date()}.txt', 'a+') as todo_file:
+                for todo_line in Global_statement.questions_to_later_learn:
                     todo_file.write(todo_line if isinstance(todo_line, str) else todo_line[0])
                     todo_file.write('\n')
             TextAnsiFormatter.prYellow('Questions to learn are written to file')
@@ -113,6 +113,37 @@ class Suit:
         # TODO
         pass
 
+    def proceed_import_file(self, path_to_read: str | None, suit) -> None:
+        """
+        Proceed file to import and return its data
+        :param suit: suit to add data
+        :param path_to_read: full path to file with data
+        :return: list with file data
+        """
+        if path_to_read is None:
+            return
+        if exists(path_to_read):
+            to_return: Final[list[IQuestion]] = list()
+            with open(path_to_read, 'r') as import_file:
+                # TODO for later use
+                # suit_name: Final[str] = import_file.name  # add suit name for useless details
+
+                for line in import_file:
+                    if line != '\n' and not line.startswith(Syntax_rules.comment_symbol):  # comments
+                        to_return.append(parse_question(clear_string(line)))
+
+                    # experimental feature, nested suits
+                    elif line.startswith(Syntax_rules.global_import_directive) or line.startswith(Syntax_rules.local_import_directive):
+                        _, file_to_include = line.split('=')
+                        self.proceed_import_file(clear_string(file_to_include), suit)
+
+                    elif line.startswith(Syntax_rules.function_directive):  # function branch
+                        pass
+
+            self.all_suit_questions.extend(to_return)
+        else:
+            TextAnsiFormatter.prRed(f'Path to import file is not exists: "{path_to_read}"')
+
     def get_questions(self):
         """
         Get questions from file and randomize them
@@ -120,28 +151,29 @@ class Suit:
         """
         # learn file processing
         try:
-            main_file_data: list[str] = open(self.start_suit_path + os.sep + App.Global_statement.main_file_name, 'r').readlines()
+            main_file_data: list[str] = open(self.start_suit_path + os.sep + Global_statement.main_file_name, 'r').readlines()
 
             for suit_line in main_file_data:
 
                 # Local import branch:
-                if suit_line.startswith(App.Syntax_rules.local_import_directive):
+                if suit_line.startswith(Syntax_rules.local_import_directive):
                     # TODO add * (start) parameter, add local files with one import directive
                     _, file_to_import = suit_line.split(' ')
-                    proceed_import_file(self.start_suit_path + os.sep + file_to_import.strip(), self)
+                    self.proceed_import_file(self.start_suit_path + os.sep + file_to_import.strip(), self)
                     continue
 
                 # Global import directive:
-                elif suit_line.startswith(App.Syntax_rules.global_import_directive):
+                elif suit_line.startswith(Syntax_rules.global_import_directive):
                     _, name_to_resolve = suit_line.split(' ')
                     if '.txt' in name_to_resolve:  # only global name, not path to file
-                        raise Exception('Global name should not contain path to file')
+                        raise Exception('Global name should not contain path to file, so delete it and try again')
 
-                    proceed_import_file(App.resolve_global_dep(clear_string(name_to_resolve)), self)
+                    self.proceed_import_file(App.resolve_global_dep(clear_string(name_to_resolve)), self)
+                    # TODO later use this: self.proceed_import_file(question_db.get_dependency_from_all(clear_string(name_to_resolve)), self)
                     continue
 
                 # comment branch:
-                if suit_line != '\n' and not suit_line.startswith(App.Syntax_rules.comment_symbol):  # comment symbol
+                if suit_line != '\n' and not suit_line.startswith(Syntax_rules.comment_symbol):  # comment symbol
                     # single questions in __main__ file
                     self.all_suit_questions.append(parse_question(clear_string(suit_line)))
 
@@ -151,7 +183,7 @@ class Suit:
                     TextAnsiFormatter.prYellow('All questions are up to date, only high priority')
 
                 elif App.Flags.is_random_run:
-                    self.all_suit_questions = fisher_yates(self.all_suit_questions)  # randomize questions before run
+                    self.all_suit_questions = learn_help.fisher_yates(self.all_suit_questions)  # randomize questions before run
                     TextAnsiFormatter.prYellow('All questions are up to date and shuffled')
 
                 else:
@@ -175,40 +207,6 @@ class Suit:
 
 
 class App:
-    class Syntax_rules:
-        """
-        Syntax rules for suits
-        """
-        # suit file consts:
-        global_import_directive: Final[str] = '.Import_global'
-        local_import_directive: Final[str] = '.Import_local'
-        function_directive: Final[str] = '$Func'
-        comment_symbol: Final[str] = '#'
-
-        # all file config:
-        variable_prefix: Final[str] = 'Var'
-        path_prefix: Final[str] = 'Path'
-
-    class Global_statement:
-        """
-        Some constants and global data in one class
-        """
-        # containers
-        questions_to_later_learn: Final[list[str]] = list()  # to do learn
-        all_file_data: Final[dict[str, str]] = dict()  # available paths and variables
-
-        # time functionality:
-        start_time: Final[datetime.datetime] = datetime.datetime.now()
-        finish_time: datetime.datetime
-
-        # consts:
-        later_learn_filename: Final[str] = 'todo-learn'
-        main_file_name: Final[str] = '__main__'
-        all_file_name: Final[str] = '__all__'
-        global_dir_name: Final[str] = '__global__'
-        statistics_file_name: Final[str] = '__stat__'  # file where stored statistics
-        app_version: Final[str] = '3.0.0'
-
     class Global_functions:
         class Function_id:
             decide_id_sym: str = 'Decide'
@@ -221,7 +219,7 @@ class App:
             :param var_name: expression
             :return:
             """
-            if var_name in App.Global_statement.all_file_data:
+            if var_name in Global_statement.all_file_data:
                 pass
             else:
                 TextAnsiFormatter.prRed(f'No global variable found with name - {var_name}')
@@ -274,6 +272,10 @@ class App:
 
         @staticmethod
         def turn_on_flags() -> None:
+            """
+            Attach namespace values into flags
+            :return: None
+            """
             App.Flags.is_random_run = ns['random_run']
             App.Flags.verbose_mode = ns['verbose']
             App.Flags.debug_mode = ns['debug']
@@ -335,27 +337,9 @@ class App:
 
         def setup_question_runner_console(self):
             active_suit: Suit = None
-            # parameters branch:
-            if args_length == 1:
-                # if I want to add another console parameters
-                match args[1]:
-                    case 'new-suit' | 'ns':
-                        App.str_input_data = safe_str_input_from_user('Enter file name:')
-                        with open(App.str_input_data, 'w+') as new_file:
-                            new_file.write(f'#{App.str_input_data} suit: \n')  # add suit name
-                            new_file.write('#<Question text>|<Optional answer>\n')  # add instruction
-                        exit(0)  # exit after creation
-
-                    case 'help' | 'h':
-                        TextAnsiFormatter.prGreen('"new-suit" for creating new suit')
-                        TextAnsiFormatter.prGreen('also available first argument is path to directory with learn files')
-                        exit(0)
-
-                    case _:
-                        handle_critical_error(f'Unknown start parameter {args[1]}')
 
             # local start branch:
-            elif args_length == 0:
+            if args_length == 0:
                 suits_key: Final[list[str]] = list()
                 if len(self._suits) > 1:
                     TextAnsiFormatter.prYellow('Detected several available suits:')
@@ -401,30 +385,39 @@ class App:
                 for num, suit_file in enumerate(self.active_suit.suit_files):
                     print(f'{num}: {suit_file}')
 
+                # print all flags state:
+                print('Flags statements:')
+                for flag, value in App.Flags.__dict__.items():
+                    print(f'Flag: {flag}, value: {value}')
+
             while True:
                 current_question: IQuestion = self.active_suit.all_suit_questions[question_counter]  # str for old textAnsiFormatter
+                TextAnsiFormatter.prCyan(f'\n{question_counter + 1}/{all_questions_count}: "{current_question.question.capitalize()}"')
 
                 if not app.Flags.is_norate_question:
                     # Writing questions branch
-                    if isinstance(current_question, learn_help.TaskWithWriting):
+                    if isinstance(current_question, learn_help.Task_with_writing):
                         TextAnsiFormatter.prYellow('Writing task')
-                    TextAnsiFormatter.prCyan(f'\n{question_counter + 1}/{all_questions_count}: "{current_question.question.capitalize()}"')
+                        App.str_input_data = safe_str_input_from_user()
+                        # TODO add correct answer check
+                        continue
 
                     # Variants questions branch
-                    if isinstance(current_question, learn_help.QuestionWithVariants):
+                    if isinstance(current_question, learn_help.Question_with_variants):
                         TextAnsiFormatter.prYellow('Available variants:')
                         for num, variant in current_question.variants.items():
-                            print(f'{num}: {variant}')
+                            print(f'{num}: {variant}', end='\n')
                         App.str_input_data = safe_str_input_from_user()
+                        # TODO add correct answer check
                         continue
 
                     # AI check questions branch
-                    if isinstance(current_question, learn_help.QuestionWithAiCheck):
+                    if isinstance(current_question, learn_help.Question_with_ai_check):
                         TextAnsiFormatter.prYellow('AI check question, please wait')
                         continue
 
                     # Timer questions branch
-                    if isinstance(current_question, learn_help.QuestionWithTimer):
+                    if isinstance(current_question, learn_help.Question_with_timer):
                         TextAnsiFormatter.prYellow(f'Timer question, you have only {current_question.time_to_wait}')
                         continue
                 else:
@@ -437,6 +430,8 @@ class App:
                     TextAnsiFormatter.prYellow('Enter "pass"   (p) to pass question,')
                     TextAnsiFormatter.prYellow('Enter "no"     (n) if you do not know answer,')
                     TextAnsiFormatter.prYellow('Enter "help"   (h) to view answer,')
+                    TextAnsiFormatter.prYellow('Enter "time"   (t) to view elapsed time,')
+                    TextAnsiFormatter.prYellow('Enter "pause"  to pause questions,')
                     if App.Flags.debug_mode:
                         TextAnsiFormatter.prUnderline('Enter "ans" (a) to add answer')  # to add answer
                         TextAnsiFormatter.prUnderline('Enter "add" (add) to add question to suit')
@@ -456,7 +451,7 @@ class App:
 
                     case 'no' | 'n':
                         TextAnsiFormatter.prRed('Later check this question')
-                        App.Global_statement.questions_to_later_learn.append(current_question if isinstance(current_question, str) else current_question.question)
+                        Global_statement.questions_to_later_learn.append(current_question if isinstance(current_question, str) else current_question.question)
                         question_counter += 1
                         clear_screen()
                         continue
@@ -473,10 +468,28 @@ class App:
                                 TextAnsiFormatter.prRed('No answer available')
                         continue
 
+                    case 'time' | 't':
+                        current_time = datetime.datetime.now()
+                        TextAnsiFormatter.prYellow(f'learning time: {(current_time - Global_statement.start_time)}')
+                        clear_screen()
+                        continue
+
+                    case 'pause':
+                        TextAnsiFormatter.prYellow('Question runner is stopped')
+                        saved_start_time = Global_statement.start_time
+                        stop_time = datetime.datetime.now()
+                        op = str_input_from_user('Enter "continue" when you ready')
+                        App.str_input_data = op if op is not None else 'no'
+                        if App.str_input_data == 'yes':
+                            Global_statement.start_time = (saved_start_time - (saved_start_time - stop_time))
+                            continue
+                        elif App.str_input_data == 'no':
+                            app.exit_from_app()
+
                     case 'save' | 's':
                         TextAnsiFormatter.prYellow('Save question for later study')
-                        if not current_question in App.Global_statement.questions_to_later_learn:
-                            App.Global_statement.questions_to_later_learn.append(current_question.question)
+                        if not current_question in Global_statement.questions_to_later_learn:
+                            Global_statement.questions_to_later_learn.append(current_question.question)
                         else:
                             TextAnsiFormatter.prRed('Question already saved')
 
@@ -497,8 +510,8 @@ class App:
                                     case 'y' | 'yes':
                                         TextAnsiFormatter.prGreen('Saving file')
                                         with open(f'savefile-{datetime.date.today()}.txt', 'w+') as save_file:
-                                            for question_line in range(len(App.Global_statement.questions_to_later_learn)):
-                                                save_file.write(f'{App.Global_statement.questions_to_later_learn[question_line]}\n')
+                                            for question_line in range(len(Global_statement.questions_to_later_learn)):
+                                                save_file.write(f'{Global_statement.questions_to_later_learn[question_line]}\n')
                                         TextAnsiFormatter.prGreen('Save complete')
                                         break
 
@@ -515,14 +528,14 @@ class App:
 
                     case _:
                         # some kind of kostyl for write questions type
-                        if isinstance(current_question, learn_help.TaskWithWriting):
+                        if isinstance(current_question, learn_help.Task_with_writing):
                             question_counter += 1
                             continue
                         TextAnsiFormatter.prRed('Wrong value, try again')
                         continue
 
             finish_time = datetime.datetime.now()
-            TextAnsiFormatter.prYellow(f'learning time: {(finish_time - App.Global_statement.start_time)}')
+            TextAnsiFormatter.prYellow(f'learning time: {(finish_time - Global_statement.start_time)}')
             self.active_suit.later_todo()
 
     int_input_data: int
@@ -535,9 +548,9 @@ class App:
             self.data_driver = Data_driver()
 
             if App.Flags.is_norate_question:
+                # question_db.create_voice_table()
                 self.norator = Norator(words_per_minute=100, volume=0.9, offline_mode=False)
 
-            self.all_file_data: dict[str, str] = dict()
             self.statistic = App.Statistics()
             self.question_runner = App.Question_runner()
         except Exception as e:
@@ -549,15 +562,15 @@ class App:
         Check for global files (suits)
         :return: None
         """
-        if not exists(start_path + os.sep + App.Global_statement.global_dir_name):
+        if not exists(start_path + os.sep + Global_statement.global_dir_name):
             TextAnsiFormatter.prRed('Global data directory is not created, auto create global directory')
-            os.mkdir(start_path + os.sep + App.Global_statement.global_dir_name)
-        dir_data = os.listdir(start_path + os.sep + App.Global_statement.global_dir_name)
+            os.mkdir(start_path + os.sep + Global_statement.global_dir_name)
+        dir_data = os.listdir(start_path + os.sep + Global_statement.global_dir_name)
         if len(dir_data) > 0:
             for file_line in dir_data:
                 # insert global path as a value
-                App.Global_statement.all_file_data[clear_string(file_line.removesuffix('.txt') if '.txt' in file_line else file_line)] = (
-                    clear_string(start_path + os.sep + App.Global_statement.global_dir_name + os.sep + file_line))
+                Global_statement.all_file_data[clear_string(file_line.removesuffix('.txt') if '.txt' in file_line else file_line)] = (
+                    clear_string(start_path + os.sep + Global_statement.global_dir_name + os.sep + file_line))
         else:
             TextAnsiFormatter.prYellow('Global directory is empty, fill it with global files!')
 
@@ -567,25 +580,25 @@ class App:
         Check for all file with paths and global variables
         :return: None
         """
-        if not exists(start_path + os.sep + App.Global_statement.all_file_name):
+        if not exists(start_path + os.sep + Global_statement.all_file_name):
             TextAnsiFormatter.prRed('All file is not created, auto create all file')
-            open(start_path + os.sep + App.Global_statement.all_file_name, 'r').close()
+            open(start_path + os.sep + Global_statement.all_file_name, 'r').close()
 
-        file_data = open(start_path + os.sep + App.Global_statement.all_file_name, 'r').readlines()
+        file_data = open(start_path + os.sep + Global_statement.all_file_name, 'r').readlines()
 
         for line in file_data:
             if line != '' and '=' in line:
                 # path path:
-                if line.startswith(App.Syntax_rules.path_prefix):
-                    line = line.removeprefix(App.Syntax_rules.path_prefix)
+                if line.startswith(Syntax_rules.path_prefix):
+                    line = line.removeprefix(Syntax_rules.path_prefix)
                     glob_name, glob_path = line.split('=')
-                    App.Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
+                    Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
 
                 # variable path:
-                elif line.startswith(App.Syntax_rules.variable_prefix):
-                    line = line.removeprefix(App.Syntax_rules.variable_prefix)
+                elif line.startswith(Syntax_rules.variable_prefix):
+                    line = line.removeprefix(Syntax_rules.variable_prefix)
                     glob_name, glob_path = line.split('=')
-                    App.Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
+                    Global_statement.all_file_data[clear_string(glob_name)] = clear_string(glob_path)
 
                 else:
                     TextAnsiFormatter.prRed(f'Unknown parameter line in all file {line}')
@@ -617,51 +630,35 @@ class App:
             # Dev mode:
             elif App.Flags.app_mode == App.Flags.App_mode.DEV:
                 TextAnsiFormatter.prYellow('Choose app action:')
-                print('1. Create suit')
-                print('2. Append new question to suit')
-                print('3. Append new Global path variable')
-                print('4. Count questions')
+                print('1. Append new Global path variable')
+                print('2. Count questions')
                 # remote
-                print('5. Save local question suits in remote (Data driver available)')
-                print('6. Load remote questions in local (Data driver available)')
+                print('3. Save local question suits in remote (Data driver available)')
+                print('4. Load remote questions in local (Data driver available)')
                 App.int_input_data = safe_int_input_from_user()
                 match App.int_input_data:
                     case 1:
-                        TextAnsiFormatter.prYellow('Enter suit name:')
-                        App.str_input_data = safe_str_input_from_user()
-                        new_suit_path = start_path + os.sep + App.str_input_data
-
-                        os.mkdir(new_suit_path)
-                        TextAnsiFormatter.prYellow('Created new suit directory')
-                        with open(App.str_input_data + os.sep + App.Global_statement.main_file_name, 'w+'):
-                            TextAnsiFormatter.prYellow('Created main file for new suit')
-
-                    case 2:
-                        # TODo first choose suit
-                        TextAnsiFormatter.prYellow('Enter new question')
-                        App.str_input_data = safe_str_input_from_user()
-
-                    case 3:
                         TextAnsiFormatter.prYellow('Enter new global path variable name')
                         App.str_input_data = safe_str_input_from_user()
-                        with open(start_path + os.sep + App.Global_statement.all_file_name, 'a') as all_file:
+                        with open(start_path + os.sep + Global_statement.all_file_name, 'a') as all_file:
                             all_file.write(f'Path {App.str_input_data.split(os.sep)[-1]} = {App.str_input_data}')
 
-                    case 4:
+                    case 2:
                         TextAnsiFormatter.prPurple('All questions count: ')
                         counter: int = 0
-                        for _, suit in app.question_runner._suits.items():
+                        suits = App.get_suits(True) is not None if True else OrderedDict()
+                        for _, suit in suits:
                             suit.get_questions()
                             for _ in suit.all_suit_questions:
                                 counter += 1
 
                         print(counter, end='')
 
-                    case 5:
+                    case 3:
                         TextAnsiFormatter.prYellow('Activate saving questions in remote')
                         app.data_driver.save_questions_in_remote()
 
-                    case 6:
+                    case 4:
                         TextAnsiFormatter.prYellow('Activate loading questions from remote')
                         app.data_driver.load_questions_from_remote()
 
@@ -677,19 +674,17 @@ class App:
     def exit_from_app(self):
         if App.Flags.app_mode == App.Flags.App_mode.GRAPHICAL:
             sys.exit(self.question_runner.outer_app.exec())
-
-        if exists(start_path + '/' + 'output.mp3'):
-            os.remove(start_path + '/' + 'output.mp3')
         self.statistic.print_statistics()
 
+    # TODO Delete later
     @staticmethod
     def resolve_global_dep(dependency_name: str) -> str | None:
         """
         Resolve global dependencies from all file
         :return: string path to global dependency or None otherwise
         """
-        if dependency_name in App.Global_statement.all_file_data:
-            return App.Global_statement.all_file_data[dependency_name]
+        if dependency_name in Global_statement.all_file_data:
+            return Global_statement.all_file_data[dependency_name]
         else:
             TextAnsiFormatter.prRed(f'No global value found: "{dependency_name}", return "None" instead')
             return None
@@ -711,39 +706,26 @@ class App:
             handle_critical_error('No files found')
             return None
 
-
-def proceed_import_file(path_to_read: str | None, suit: Suit) -> None:
-    """
-    Proceed file to import and return its data
-    :param suit: suit to add data
-    :param path_to_read: full path to file with data
-    :return: list with file data
-    """
-    if path_to_read is None:
-        return
-    if exists(path_to_read):
-        to_return: Final[list[IQuestion]] = list()
-        with open(path_to_read, 'r') as import_file:
-            # TODO for later use
-            # suit_name: Final[str] = import_file.name  # add suit name for useless details
-
-            for line in import_file:
-                if line != '\n' and not line.startswith(App.Syntax_rules.comment_symbol):  # comments
-                    to_return.append(parse_question(clear_string(line)))
-
-                # experimental feature, nested suits
-                elif line.startswith(App.Syntax_rules.global_import_directive) or line.startswith(App.Syntax_rules.local_import_directive):
-                    _, file_to_include = line.split('=')
-                    proceed_import_file(clear_string(file_to_include), suit)
-
-                elif line.startswith(App.Syntax_rules.function_directive):  # function branch
-                    pass
-
-        suit.all_suit_questions.extend(to_return)
-    else:
-        TextAnsiFormatter.prRed(f'Path to import file is not exists: "{path_to_read}"')
+    # TODO continue from here
+    @staticmethod
+    def get_tables(with_questions: bool = False) -> OrderedDict[str, Suit] | None:
+        suits: OrderedDict[str, Suit]
+        dirs = list(filter(lambda x: not x.startswith('.'), os.listdir(start_path)))
+        if len(dirs) > 0:
+            suits = OrderedDict()
+            for dir in dirs:
+                if Suit.is_suit(dir):
+                    suit = Suit(dir)
+                    if with_questions:
+                        suit.get_questions()  # init questions (parse them)
+                    suits[dir] = suit
+            return suits
+        else:
+            handle_critical_error('No files found')
+            return None
 
 
+# TODO will be deleted soon and replaced with rust implementation
 def parse_question(quest_line: str) -> IQuestion:
     """
     Very, very new type of questions
@@ -751,7 +733,7 @@ def parse_question(quest_line: str) -> IQuestion:
     :return: Question object or old format question
     """
     params = quest_line.removeprefix('Question(').removesuffix(')').split(',')
-    params_dict: dict[str, str] = dict()
+    params_dict: dict[str, str | dict] = dict()
     try:
         try:
             for param in params:
@@ -770,13 +752,16 @@ def parse_question(quest_line: str) -> IQuestion:
                     case 'Simple':
                         parsed_question = learn_help.Simple_question(**params_dict)
                     case 'Variants':
-                        parsed_question = learn_help.QuestionWithVariants(**params_dict)
+                        # TODO Kostyl, parse variants from string to dict
+                        del params_dict['variants']
+                        params_dict['variants'] = {}
+                        parsed_question = learn_help.Question_with_variants(**params_dict)
                     case 'Timer':
-                        parsed_question = learn_help.QuestionWithTimer(**params_dict)
+                        parsed_question = learn_help.Question_with_timer(**params_dict)
                     case 'Writing':
-                        parsed_question = learn_help.TaskWithWriting(**params_dict)
+                        parsed_question = learn_help.Task_with_writing(**params_dict)
                     case 'AI_check':
-                        parsed_question = learn_help.QuestionWithAiCheck(**params_dict)
+                        parsed_question = learn_help.Question_with_ai_check(**params_dict)
                     case _:
                         raise Exception(f'Wrong question type')
             except Exception as e:
@@ -786,7 +771,7 @@ def parse_question(quest_line: str) -> IQuestion:
 
         return parsed_question
     except Exception:
-        print('Using fallback init with Simple class by Transpiler:')
+        print('Using fallback init with Simple class by Transpiler')
         fallback_question = Transpiler.get_data_from_question(Transpiler.parse_one_question_static(quest_line))
         return learn_help.Simple_question(question=fallback_question['question'], priority=fallback_question['priority'], answer=fallback_question['answer'])
 
@@ -800,8 +785,8 @@ def signal_handler(sig, frame):
     """
     print('\n')
     if app is not None:
-        App.Global_statement.finish_time = datetime.datetime.now()
-        TextAnsiFormatter.prYellow(f'learning time - {(App.Global_statement.finish_time - App.Global_statement.start_time)}')
+        Global_statement.finish_time = datetime.datetime.now()
+        TextAnsiFormatter.prYellow(f'learning time - {(Global_statement.finish_time - Global_statement.start_time)}')
         TextAnsiFormatter.prYellow("Out program")
         app.exit_from_app()
     exit(0)
@@ -822,6 +807,7 @@ def handle_critical_error(msg: str):
 
 
 if __name__ == '__main__':
+    os.environ['TERM'] = 'xterm-256color'
     signal.signal(signal.SIGINT, signal_handler)  # if program goes wrong
 
     args_length: Final[int] = len(sys.argv) - 1  # delete program name from arguments
@@ -832,37 +818,45 @@ if __name__ == '__main__':
         print(f'Run on path: {start_path}')
 
     parser = argparse.ArgumentParser('Learn-help', description='App for learning')
-    parser.add_argument('-r', '--random-run', action='store', help='Run questions randomly or sequential', required=False, default=True)
-    parser.add_argument('-v', '--verbose', action='store', help='More details in messages and options', required=False, default=False)
-    parser.add_argument('-d', '--debug', action='store', help='Debug messages with other', required=False, default=False)
+    parser.add_argument('--random-run', action='store', help='Run questions randomly or sequential', required=False, default=True)
+    parser.add_argument('--verbose', action='store', help='More details in messages and options', required=False, default=False)
+    parser.add_argument('--debug', action='store', help='Debug messages with other', required=False, default=False)
     parser.add_argument('--high-prior', action='store', help='Run only high priority questions', required=False, default=False)
     parser.add_argument('--norate', action='store', help='Norate questions instead of seeing text', required=False, default=False)
     parser.add_argument('--ai', action='store', help='Every attempt to see answer will cause AI to generate it', required=False, default=False)
-    ns = parser.parse_args(args)
-    ns = ns.__dict__  # convert namespace into dictionary
+    ns = parser.parse_args(args).__dict__  # convert namespaces into dictionary
 
     TextAnsiFormatter.prPurple('Choose app mode:')
     print('1. Web server (for mobile app transfer data only)')
     print('2. Usual mode (question runner in console)')
     print('3. Graphical mode (add questions to app)')
     print('4. Dev mode')
+    print('5. Question database mode')
     while True:
         App.int_input_data = int_input_from_user()
 
         if App.int_input_data is None:  # bug fix, when kill program in choose option
             exit(0)
 
+        # Web server mode:
         if App.int_input_data == 1:
             App.Flags.app_mode = App.Flags.App_mode.WEB_SERV
             break
 
+        # Graphical or console mode:
         elif App.int_input_data == 2 or App.int_input_data == 3:
             App.Flags.app_mode = App.Flags.App_mode.CONSOLE if App.int_input_data == 2 else App.Flags.App_mode.GRAPHICAL
             break
 
+        # Dev mode:
         elif App.int_input_data == 4:
             App.Flags.app_mode = App.Flags.App_mode.DEV
             break
+
+        # Question database mode:
+        elif App.int_input_data == 5:
+            interface = DB_interface()
+            interface.run()
 
         else:
             TextAnsiFormatter.prRed(f'Wrong option selected: {App.int_input_data}')
