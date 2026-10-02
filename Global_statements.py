@@ -16,8 +16,9 @@ class Global_statement:
 
     # consts:
     later_learn_filename: Final[str] = 'todo-learn'
-    main_file_name: Final[str] = '__main__' # control file in suit with imports
-    all_file_name: Final[str] = '__all__' # almost deprecated file for global dependencies
-    global_dir_name: Final[str] = '__global__' # directory with global dependencies
+    main_file_name: Final[str] = '__main__'  # control file in suit with imports
+    all_file_name: Final[str] = '__all__'  # almost deprecated file for global dependencies
+    global_dir_name: Final[str] = '__global__'  # directory with global dependencies
     statistics_file_name: Final[str] = '__stat__'  # file where stored statistics
-    app_version: Final[str] = '4.0.0'
+    app_version: Final[str] = '4.1.0'
+    terminal_width: Final[int] = 80  # count of symbols in terminal

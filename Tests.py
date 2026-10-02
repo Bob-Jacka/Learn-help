@@ -8,7 +8,10 @@ try:
 except Exception as e:
     print(f'No available modules found: {e}')
 
-from main import parse_question
+try:
+    from learn_help import question_factory
+except Exception as e:
+    print(f'No available rust lib found: {e}')
 
 
 class Free_functions(unittest.TestCase):
@@ -18,7 +21,7 @@ class Free_functions(unittest.TestCase):
 
     @parametrize(type='Simple', question='Что такое баг?', answer='Различие ожидаемого и фактического поведения')
     def test_should_parse_questions_as_simple(self, type, question, answer):
-        var = not self.assertRaises(parse_question(f'Question(type={type}), question={question}, answer={answer}'))
+        var = not self.assertRaises(question_factory(f'Question(type={type}), question={question}, answer={answer}'))
 
     def test_should_not_parse_questions(self):
-        parse_question()
+        question_factory()

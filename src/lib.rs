@@ -99,7 +99,6 @@ mod learn_help {
                         "question" => Ok(self.question.clone()),
                         "answer" => Ok(self.answer.clone()),
                         "priority" => Ok(self.priority.clone()),
-                        "variants" => Ok(self.variants.clone()),
                         _ => Err(pyo3::exceptions::PyKeyError::new_err(format!(
                             "Unknown property: {}",
                             prop
@@ -191,7 +190,7 @@ mod learn_help {
                 "question" => Ok(self.question.clone()),
                 "answer" => Ok(self.answer.clone()),
                 "priority" => Ok(self.priority.clone()),
-                "time_to_wait" => Ok(self.time_to_wait.clone()),
+                "time_to_wait" => Ok(self.time_to_wait.to_string()),
                 _ => Err(pyo3::exceptions::PyKeyError::new_err(format!("Unknown property: {}",prop))),
             }
         }
@@ -270,8 +269,13 @@ mod learn_help {
             let mut params_dict: HashMap<String, String> = HashMap::new();
 
             for param in params {
-                let splitted: Vec<_> = param.split("=").collect();
-                params_dict.insert(splitted[0].trim().to_string(), splitted[1].trim().to_string());
+                if param.starts_with("variants") {
+                    let splitted: Vec<_> = param.split(":").collect();
+                    params_dict.insert(splitted[0].trim().to_string(), splitted[1].trim().to_string()); //key - variants, value - 1=some;2=how
+                } else {
+                    let splitted: Vec<_> = param.split("=").collect();
+                    params_dict.insert(splitted[0].trim().to_string(), splitted[1].trim().to_string());
+                }
             }
 
             let question_type = params_dict.get("type").cloned().unwrap_or_default(); //FIXME May cause problem, due to empty string
@@ -287,28 +291,29 @@ mod learn_help {
                 .parse::<i32>()
                 .unwrap();
 
-            //For variants question:
+            //For variants question, example of variants is "1=some;2=how;3=somehow":
             let variants_str = params_dict.get("variants").map(|s| s.as_str()).unwrap_or("");
             let mut variants: HashMap<i32, String> = HashMap::new();
 
-            for pair in variants_str.split(';') {
-                if pair.is_empty() {
-                    continue;
-                }
+            if question_type == "Variants" {
+                for pair in variants_str.split(';') {
+                    if pair.is_empty() {
+                        continue;
+                    }
 
-                let mut parts = pair.splitn(2, '=');
+                    let mut parts = pair.splitn(2, '=');
 
-                let key_str = parts.next().ok_or_else(|| pyo3::exceptions::PyValueError::new_err("No key in pair"))?;
-                let value_str = parts.next().ok_or_else(|| pyo3::exceptions::PyValueError::new_err("No value in pair"))?;
+                    let key_str = parts.next().ok_or_else(|| pyo3::exceptions::PyValueError::new_err("No key in pair"))?;
+                    let value_str = parts.next().ok_or_else(|| pyo3::exceptions::PyValueError::new_err(format!("No value in pair with key: '{}'", key_str)))?;
 
-                let key: i32 = key_str
+                    let key: i32 = key_str
                     .trim()
                     .parse()
                     .map_err(|_| pyo3::exceptions::PyValueError::new_err(format!("Wrong key '{}': not a number", key_str)))?;
 
-                let value = value_str.trim().to_string();
-
-                variants.insert(key, value);
+                    let value = value_str.trim().to_string();
+                    variants.insert(key, value);
+                }
             }
 
             if params_dict.contains_key("type") {

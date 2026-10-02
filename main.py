@@ -9,6 +9,7 @@ import os.path
 import signal
 import subprocess
 import sys
+from abc import ABC, abstractmethod
 from collections import OrderedDict
 from enum import Enum
 from os.path import exists
@@ -24,7 +25,6 @@ from Global_statements import Global_statement
 from Norator import Norator
 from Question_database import DB_interface
 from Syntax_rules import Syntax_rules
-from Transpiler import Transpiler
 from UI import Ui_Form, Choose_suit_dialog
 
 try:
@@ -41,11 +41,178 @@ except Exception as e:
     print(f'Error in import Rust based functions: "{e}"')
 
 start_path: str = Path().parent.absolute().as_posix()
+"""
+Utility execution start path 
+"""
 
-IQuestion = learn_help.Simple_question | learn_help.Question_with_timer | learn_help.Task_with_writing | learn_help.Question_with_variants | learn_help.Question_with_ai_check
+type IQuestion = learn_help.Simple_question | learn_help.Question_with_timer | learn_help.Task_with_writing | learn_help.Question_with_variants | learn_help.Question_with_ai_check
 """
 Interface type for rust based questions in python
 """
+
+
+class Command(ABC):
+    question: IQuestion
+
+    def __init__(self, question: IQuestion):
+        self.question = question
+
+    @abstractmethod
+    def run(self) -> bool:
+        pass
+
+
+class Norate(Command):
+
+    def run(self) -> bool:
+        TextAnsiFormatter.prPurple('Listen to question')
+        TextAnsiFormatter.prYellow('Press "r" to repeat')
+        app.norator.norate_string(self.question.question)
+        return False
+
+
+class Text(Command):
+
+    def run(self) -> bool:
+        if isinstance(self.question, learn_help.Simple_question):
+            return False # return false to next proceed
+
+        # Writing questions branch
+        if isinstance(self.question, learn_help.Task_with_writing):
+            TextAnsiFormatter.prYellow('Writing task')
+            App.str_input_data = safe_str_input_from_user()
+            if App.str_input_data != '':
+                return True
+
+        # Variants questions branch
+        if isinstance(self.question, learn_help.Question_with_variants):
+            TextAnsiFormatter.prYellow('Available variants:')
+            for num, variant in self.question.variants.items():
+                print(f'{num}: {variant}', end='\n')
+            App.str_input_data = safe_str_input_from_user()
+            # TODO add correct answer check
+            return True
+
+        # AI check questions branch
+        if isinstance(self.question, learn_help.Question_with_ai_check):
+            TextAnsiFormatter.prYellow('AI check question, please wait')
+            return True
+
+        # Timer questions branch
+        if isinstance(self.question, learn_help.Question_with_timer):
+            TextAnsiFormatter.prYellow(f'Timer question, you have only {self.question.time_to_wait}')
+            return True
+        return False
+
+
+class GUI(Command):
+    def run(self):
+        pass
+
+
+class Control:
+    question_counter = 0
+    all_questions_count = 0
+
+    def __init__(self, all_questions_count: int):
+        self.all_questions_count = all_questions_count
+
+    def proceed_command(self, command: Command):
+        res = command.run()
+        if res:
+            return
+        current_question = command.question
+
+        while True:
+            # Simple questions branch
+            App.str_input_data = safe_str_input_from_user()
+            match App.str_input_data:
+                case 'pass' | 'p':
+                    clear_screen()
+                    self.question_counter += 1
+                    break
+
+                case 'no' | 'n':
+                    TextAnsiFormatter.prRed('Later check this question')
+                    Global_statement.questions_to_later_learn.append(current_question if isinstance(current_question, str) else current_question.question)
+                    clear_screen()
+                    self.question_counter += 1
+                    break
+
+                case 'help' | 'h':
+                    if App.Flags.is_ai_generating_answer:
+                        TextAnsiFormatter.prGreen(f'Answer: {app.ai_gen.generate_answer(current_question.answer)}')
+                    elif App.Flags.is_norate_question:
+                        app.norator.norate_string(current_question.answer)
+                    else:
+                        if current_question.answer != '':
+                            TextAnsiFormatter.prGreen(f'Answer: {current_question.answer}')
+                        else:
+                            TextAnsiFormatter.prRed('No answer available')
+                    continue
+
+                case 'time' | 't':
+                    current_time = datetime.datetime.now()
+                    TextAnsiFormatter.prYellow(f'learning time: {(current_time - Global_statement.start_time)}')
+                    clear_screen()
+                    continue
+
+                case 'pause':
+                    TextAnsiFormatter.prYellow('Question runner is stopped')
+                    saved_start_time = Global_statement.start_time
+                    stop_time = datetime.datetime.now()
+                    op = str_input_from_user('Enter "continue" when you ready')
+                    App.str_input_data = op if op is not None else 'no'
+                    if App.str_input_data == 'yes':
+                        Global_statement.start_time = (saved_start_time - (saved_start_time - stop_time))
+                        continue
+                    elif App.str_input_data == 'no':
+                        app.exit_from_app()
+
+                case 'save' | 's':
+                    TextAnsiFormatter.prYellow('Save question for later study')
+                    if not current_question in Global_statement.questions_to_later_learn:
+                        Global_statement.questions_to_later_learn.append(current_question.question)
+                    else:
+                        TextAnsiFormatter.prRed('Question already saved')
+
+                case 'reload' | 'r':
+                    if App.Flags.is_norate_question:
+                        app.norator.norate_string(current_question.question)
+                    else:
+                        TextAnsiFormatter.prYellow('Reload')
+                        # TODO
+
+                case 'exit' | 'e':
+                    TextAnsiFormatter.prYellow(f'Solved only {self.question_counter}/{self.all_questions_count}, session is not ended')
+                    TextAnsiFormatter.prYellow('Do you want to save current session for later continue? (y/n)')
+                    while True:
+                        App.str_input_data = safe_str_input_from_user()
+                        match App.str_input_data:
+                            case 'y' | 'yes':
+                                TextAnsiFormatter.prGreen('Saving file')
+                                with open(f'savefile-{datetime.date.today()}.txt', 'w+') as save_file:
+                                    for question_line in range(len(Global_statement.questions_to_later_learn)):
+                                        save_file.write(f'{Global_statement.questions_to_later_learn[question_line]}\n')
+                                TextAnsiFormatter.prGreen('Save complete')
+                                break
+
+                            case 'n' | 'no':
+                                TextAnsiFormatter.prGreen('No save')
+                                exit(0)
+
+                            case _:
+                                TextAnsiFormatter.prRed('Wrong value added, try again')
+                                continue
+                    break
+
+                case _:
+                    # some kind of kostyl for write questions type
+                    if isinstance(current_question, learn_help.Task_with_writing):
+                        self.question_counter += 1
+                        continue
+                    TextAnsiFormatter.prRed('Wrong value, try again')
+                    continue
 
 
 class Suit:
@@ -130,7 +297,8 @@ class Suit:
 
                 for line in import_file:
                     if line != '\n' and not line.startswith(Syntax_rules.comment_symbol):  # comments
-                        to_return.append(parse_question(clear_string(line)))
+                        to_return.append(learn_help.question_factory(clear_string(line)))
+                        # to_return.append(parse_question(clear_string(line))) # old style format
 
                     # experimental feature, nested suits
                     elif line.startswith(Syntax_rules.global_import_directive) or line.startswith(Syntax_rules.local_import_directive):
@@ -175,7 +343,8 @@ class Suit:
                 # comment branch:
                 if suit_line != '\n' and not suit_line.startswith(Syntax_rules.comment_symbol):  # comment symbol
                     # single questions in __main__ file
-                    self.all_suit_questions.append(parse_question(clear_string(suit_line)))
+                    self.all_suit_questions.append(learn_help.question_factory(clear_string(suit_line)))
+                    # self.all_suit_questions.append(parse_question(clear_string(suit_line)))
 
             if len(self.all_suit_questions) > 0:
                 if App.Flags.high_prior_strat:  # apply high priority strategy
@@ -390,149 +559,19 @@ class App:
                 for flag, value in App.Flags.__dict__.items():
                     print(f'Flag: {flag}, value: {value}')
 
-            while True:
+            splitter = Global_statement.terminal_width
+            control: Final[Control] = Control(all_questions_count)
+            while question_counter != all_questions_count:
                 current_question: IQuestion = self.active_suit.all_suit_questions[question_counter]  # str for old textAnsiFormatter
-                TextAnsiFormatter.prCyan(f'\n{question_counter + 1}/{all_questions_count}: "{current_question.question.capitalize()}"')
+                question_str: str = current_question.question.capitalize()
+                TextAnsiFormatter.prCyan(f'\n{question_counter + 1}/{all_questions_count}: "{question_str if len(question_str) <= splitter else question_str[:splitter] + '-\n' + question_str[splitter:]}"')
 
-                if not app.Flags.is_norate_question:
-                    # Writing questions branch
-                    if isinstance(current_question, learn_help.Task_with_writing):
-                        TextAnsiFormatter.prYellow('Writing task')
-                        App.str_input_data = safe_str_input_from_user()
-                        # TODO add correct answer check
-                        continue
-
-                    # Variants questions branch
-                    if isinstance(current_question, learn_help.Question_with_variants):
-                        TextAnsiFormatter.prYellow('Available variants:')
-                        for num, variant in current_question.variants.items():
-                            print(f'{num}: {variant}', end='\n')
-                        App.str_input_data = safe_str_input_from_user()
-                        # TODO add correct answer check
-                        continue
-
-                    # AI check questions branch
-                    if isinstance(current_question, learn_help.Question_with_ai_check):
-                        TextAnsiFormatter.prYellow('AI check question, please wait')
-                        continue
-
-                    # Timer questions branch
-                    if isinstance(current_question, learn_help.Question_with_timer):
-                        TextAnsiFormatter.prYellow(f'Timer question, you have only {current_question.time_to_wait}')
-                        continue
+                if app.Flags.is_norate_question:
+                    control.proceed_command(Norate(current_question))
                 else:
-                    TextAnsiFormatter.prPurple('Listen to question')
-                    TextAnsiFormatter.prYellow('Press "r" to repeat')
-                    app.norator.norate_string(current_question.question)
+                    control.proceed_command(Text(current_question))
 
-                if App.Flags.verbose_mode:
-                    # print other question data:
-                    TextAnsiFormatter.prYellow('Enter "pass"   (p) to pass question,')
-                    TextAnsiFormatter.prYellow('Enter "no"     (n) if you do not know answer,')
-                    TextAnsiFormatter.prYellow('Enter "help"   (h) to view answer,')
-                    TextAnsiFormatter.prYellow('Enter "time"   (t) to view elapsed time,')
-                    TextAnsiFormatter.prYellow('Enter "pause"  to pause questions,')
-                    if App.Flags.debug_mode:
-                        TextAnsiFormatter.prUnderline('Enter "ans" (a) to add answer')  # to add answer
-                        TextAnsiFormatter.prUnderline('Enter "add" (add) to add question to suit')
-                    TextAnsiFormatter.prYellow('Enter "save"   (s) to save question for later learning,')
-                    TextAnsiFormatter.prYellow('Enter "reload" (r) to reload question suit,')
-                    TextAnsiFormatter.prYellow('Enter "exit"   (e) to exit program.')
-
-                # Simple questions branch
-                App.str_input_data = safe_str_input_from_user()
-                match App.str_input_data:
-                    case 'pass' | 'p':
-                        question_counter += 1
-                        if all_questions_count == question_counter:
-                            break
-                        clear_screen()
-                        continue
-
-                    case 'no' | 'n':
-                        TextAnsiFormatter.prRed('Later check this question')
-                        Global_statement.questions_to_later_learn.append(current_question if isinstance(current_question, str) else current_question.question)
-                        question_counter += 1
-                        clear_screen()
-                        continue
-
-                    case 'help' | 'h':
-                        if App.Flags.is_ai_generating_answer:
-                            TextAnsiFormatter.prGreen(f'Answer: {app.ai_gen.generate_answer(current_question.answer)}')
-                        elif App.Flags.is_norate_question:
-                            app.norator.norate_string(current_question.answer)
-                        else:
-                            if current_question.answer != '':
-                                TextAnsiFormatter.prGreen(f'Answer: {current_question.answer}')
-                            else:
-                                TextAnsiFormatter.prRed('No answer available')
-                        continue
-
-                    case 'time' | 't':
-                        current_time = datetime.datetime.now()
-                        TextAnsiFormatter.prYellow(f'learning time: {(current_time - Global_statement.start_time)}')
-                        clear_screen()
-                        continue
-
-                    case 'pause':
-                        TextAnsiFormatter.prYellow('Question runner is stopped')
-                        saved_start_time = Global_statement.start_time
-                        stop_time = datetime.datetime.now()
-                        op = str_input_from_user('Enter "continue" when you ready')
-                        App.str_input_data = op if op is not None else 'no'
-                        if App.str_input_data == 'yes':
-                            Global_statement.start_time = (saved_start_time - (saved_start_time - stop_time))
-                            continue
-                        elif App.str_input_data == 'no':
-                            app.exit_from_app()
-
-                    case 'save' | 's':
-                        TextAnsiFormatter.prYellow('Save question for later study')
-                        if not current_question in Global_statement.questions_to_later_learn:
-                            Global_statement.questions_to_later_learn.append(current_question.question)
-                        else:
-                            TextAnsiFormatter.prRed('Question already saved')
-
-                    case 'reload' | 'r':
-                        if App.Flags.is_norate_question:
-                            app.norator.norate_string(current_question.question)
-                        else:
-                            TextAnsiFormatter.prYellow('Reload')
-                            # TODO
-
-                    case 'exit' | 'e':
-                        if question_counter < all_questions_count:
-                            TextAnsiFormatter.prYellow(f'Solved only {question_counter}/{all_questions_count}, session is not ended')
-                            TextAnsiFormatter.prYellow('Do you want to save current session for later continue? (y/n)')
-                            while True:
-                                App.str_input_data = safe_str_input_from_user()
-                                match App.str_input_data:
-                                    case 'y' | 'yes':
-                                        TextAnsiFormatter.prGreen('Saving file')
-                                        with open(f'savefile-{datetime.date.today()}.txt', 'w+') as save_file:
-                                            for question_line in range(len(Global_statement.questions_to_later_learn)):
-                                                save_file.write(f'{Global_statement.questions_to_later_learn[question_line]}\n')
-                                        TextAnsiFormatter.prGreen('Save complete')
-                                        break
-
-                                    case 'n' | 'no':
-                                        TextAnsiFormatter.prGreen('No save')
-                                        break
-
-                                    case _:
-                                        TextAnsiFormatter.prRed('Wrong value added, try again')
-                                        continue
-                            break
-                        else:
-                            break
-
-                    case _:
-                        # some kind of kostyl for write questions type
-                        if isinstance(current_question, learn_help.Task_with_writing):
-                            question_counter += 1
-                            continue
-                        TextAnsiFormatter.prRed('Wrong value, try again')
-                        continue
+                question_counter += 1  # increment question counter after question proceed
 
             finish_time = datetime.datetime.now()
             TextAnsiFormatter.prYellow(f'learning time: {(finish_time - Global_statement.start_time)}')
@@ -723,57 +762,6 @@ class App:
         else:
             handle_critical_error('No files found')
             return None
-
-
-# TODO will be deleted soon and replaced with rust implementation
-def parse_question(quest_line: str) -> IQuestion:
-    """
-    Very, very new type of questions
-    :param quest_line: line with question directive or old question line
-    :return: Question object or old format question
-    """
-    params = quest_line.removeprefix('Question(').removesuffix(')').split(',')
-    params_dict: dict[str, str | dict] = dict()
-    try:
-        try:
-            for param in params:
-                splitted = param.split('=')
-                params_dict[clear_string(splitted[0])] = clear_string(splitted[1])
-        except IndexError:
-            print(f'Failed to parse: index is not exist')
-
-        parsed_question: IQuestion
-
-        if 'type' in params_dict.keys():
-            question_type = params_dict['type']
-            del params_dict['type']  # delete unnecessary parameter from dict
-            try:
-                match question_type:
-                    case 'Simple':
-                        parsed_question = learn_help.Simple_question(**params_dict)
-                    case 'Variants':
-                        # TODO Kostyl, parse variants from string to dict
-                        del params_dict['variants']
-                        params_dict['variants'] = {}
-                        parsed_question = learn_help.Question_with_variants(**params_dict)
-                    case 'Timer':
-                        parsed_question = learn_help.Question_with_timer(**params_dict)
-                    case 'Writing':
-                        parsed_question = learn_help.Task_with_writing(**params_dict)
-                    case 'AI_check':
-                        parsed_question = learn_help.Question_with_ai_check(**params_dict)
-                    case _:
-                        raise Exception(f'Wrong question type')
-            except Exception as e:
-                print(f'Failed to create question object: {e}')
-        else:
-            raise Exception(f'Unknown question type: {params}')
-
-        return parsed_question
-    except Exception:
-        print('Using fallback init with Simple class by Transpiler')
-        fallback_question = Transpiler.get_data_from_question(Transpiler.parse_one_question_static(quest_line))
-        return learn_help.Simple_question(question=fallback_question['question'], priority=fallback_question['priority'], answer=fallback_question['answer'])
 
 
 def signal_handler(sig, frame):

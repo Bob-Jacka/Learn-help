@@ -38,8 +38,9 @@ maturin build -r
 
 ## Example of questions in your files:
 ```Text
+Question(type=Simple, question=Вопрос для написания, answer=Correct answer, priority=NO)
 Question(type=Writing, question=Вопрос для написания, answer=Correct answer, priority=NO)
-Question(type=Variants, question=Variants, answer=Correct answer, variants=1=yes;2=no, priority=NO)
+Question(type=Variants, question=Variants, answer=Correct answer, variants:1=yes;2=no, priority=NO)
 Question(type=AI, question=Вопрос с проверкой ai, priority=NO)
 Question(type=Timer, question=Вопрос с таймером, answer=Somewhat answer, time_to_wait=5, priority=NO)
 ```
